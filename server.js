@@ -237,7 +237,7 @@ function startGame(code){
     room.map=buildMap();
     room.players.forEach(p=>{
         p.eliminated=false; p.conquestScore=0; p.defenseScore=0;
-        p.powerUps={fiftyFifty:1,extraTime:1,spy:1};
+        p.powerUps={fiftyFifty:1,extraTime:1,reveal:1};
     });
 
     // Manuel kale yerleştirme: sırayla oyuncular seçecek
@@ -802,7 +802,20 @@ io.on('connection', socket=>{
             const w=[0,1,2,3].filter(i=>i!==c).sort(()=>Math.random()-.5).slice(0,2);
             socket.emit('fiftyFiftyResult',{removedIndices:w});
         } else if(type==='extraTime') socket.emit('extraTimeGranted',{extra:10});
-        else if(type==='spy') socket.emit('spyResult',{msg:'Rakibin cevap süresini görebilirsiniz!'});
+        else if(type==='reveal'){
+            // Tahmin sorusu (expansion)
+            if(room.phase==='expansion' && room.currentQuestion){
+                socket.emit('revealResult',{type:'numerical',answer:room.currentQuestion.a,unit:room.currentQuestion.unit||''});
+            }
+            // Savas sorusu (battle - coktan secmeli)
+            else if(room.currentBattleQuestion){
+                socket.emit('revealResult',{type:'multiple',correctIndex:room.currentBattleQuestion.a});
+            }
+            // Tiebreaker
+            else if(room.tiebreakerQuestion){
+                socket.emit('revealResult',{type:'numerical',answer:room.tiebreakerQuestion.a,unit:room.tiebreakerQuestion.unit||''});
+            }
+        }
         io.to(socket.roomCode).emit('playerList',{players:safeList(room)});
     });
 

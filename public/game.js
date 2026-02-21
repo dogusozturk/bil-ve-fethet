@@ -8,7 +8,7 @@ const socket = io();
 const S = {
     myId:null, roomCode:null, players:[], map:[], phase:null, isHost:false,
     selectable:[], attackable:[], timerInterval:null, answered:false,
-    myPowerUps:{fiftyFifty:1,extraTime:1,spy:1},
+    myPowerUps:{fiftyFifty:1,extraTime:1,reveal:1},
     expRounds:4, batRounds:6, curExp:0, curBat:0, battle:null,
     allColors:[], myColor:null, placingCastle:false
 };
@@ -1109,7 +1109,29 @@ socket.on('backToLobby',d=>{
 });
 socket.on('fiftyFiftyResult',d=>{d.removedIndices.forEach(i=>{const b=document.querySelectorAll('#battleOptions .q-option');if(b[i])b[i].classList.add('removed');});UI.toast('50/50!','ok');});
 socket.on('extraTimeGranted',d=>UI.toast(`+${d.extra}s ek süre!`,'ok'));
-socket.on('spyResult',d=>UI.toast(d.msg,'info'));
+socket.on('revealResult',d=>{
+    if(d.type==='numerical'){
+        // Tahmin sorusu - cevabi input'a yaz ve gonder
+        const qInput=document.getElementById('qInput');
+        const tbInput=document.getElementById('tbInput');
+        if(qInput&&!qInput.disabled){
+            qInput.value=d.answer;
+            document.getElementById('qSubmitBtn').click();
+        } else if(tbInput&&!tbInput.disabled){
+            tbInput.value=d.answer;
+            document.getElementById('tbSubmitBtn').click();
+        }
+        UI.toast(`Dogru cevap: ${d.answer} ${d.unit}`,'ok');
+    } else if(d.type==='multiple'){
+        // Coktan secmeli - dogru sikki sec
+        const opts=document.querySelectorAll('#battleOptions .q-option');
+        if(opts[d.correctIndex]&&!S.answered){
+            opts[d.correctIndex].click();
+        }
+        UI.toast('Dogru cevap secildi!','ok');
+    }
+    SFX.play('ok');
+});
 socket.on('toast',d=>UI.toast(d.msg,d.type));
 socket.on('error',d=>UI.toast(d.msg,'err'));
 
