@@ -76,13 +76,7 @@
             <div class="hud-center">
                 <div class="turn-tracker" id="turnTracker"></div>
             </div>
-            <div class="hud-right">
-                <div class="power-ups">
-                    <button class="pu-btn" data-type="fiftyFifty" title="50/50"><span class="pu-icon">&#189;</span><span class="pu-count">1</span></button>
-                    <button class="pu-btn" data-type="extraTime" title="Ek Süre"><span class="pu-icon">&#9202;</span><span class="pu-count">1</span></button>
-                    <button class="pu-btn" data-type="spy" title="Casus"><span class="pu-icon">&#128065;</span><span class="pu-count">1</span></button>
-                </div>
-            </div>
+            <div class="hud-right"></div>
         </div>
         <div class="map-area">
             <svg id="gameMap" class="game-map"></svg>
@@ -102,6 +96,9 @@
             <div class="q-input-area">
                 <input type="number" id="qInput" placeholder="Tahminin..." autocomplete="off">
                 <button class="q-submit-btn" id="qSubmitBtn">&#10148;</button>
+            </div>
+            <div class="q-powerups">
+                <button class="pu-btn" data-type="extraTime"><span class="pu-icon">+5s</span><span class="pu-label">Ek Sure</span><span class="pu-count">1</span></button>
             </div>
         </div>
     </div>
@@ -156,6 +153,11 @@
                 <button class="q-option" data-idx="3"></button>
             </div>
             <div class="q-timer-ring"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="20" class="timer-bg"/><circle cx="22" cy="22" r="20" class="timer-fg" id="battleTimerCircle"/></svg><span class="q-timer-num" id="battleTimerNum">20</span></div>
+            <div class="q-powerups">
+                <button class="pu-btn" data-type="fiftyFifty"><span class="pu-icon">50/50</span><span class="pu-label">Yariya Indir</span><span class="pu-count">1</span></button>
+                <button class="pu-btn" data-type="extraTime"><span class="pu-icon">+5s</span><span class="pu-label">Ek Sure</span><span class="pu-count">1</span></button>
+                <button class="pu-btn" data-type="spy"><span class="pu-icon">?!</span><span class="pu-label">Casus</span><span class="pu-count">1</span></button>
+            </div>
         </div>
     </div>
 

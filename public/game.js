@@ -907,6 +907,10 @@ socket.on('battleQuestion',d=>{
         b.style.borderColor=''; b.style.background=''; b.style.boxShadow='';
     });
 
+    // Power-up'lari sadece savasan oyunculara goster
+    const bPU=document.querySelector('#battleOverlay .q-powerups');
+    if(bPU) bPU.style.display=isP?'':'none';
+
     UI.show('battleOverlay');
     startTimer(d.timeLimit, document.getElementById('battleTimerNum'), document.getElementById('battleTimerCircle'), ()=>{
         if(!S.answered&&isP){S.answered=true;socket.emit('submitBattleAnswer',{answer:-1});}
