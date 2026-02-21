@@ -189,82 +189,6 @@ function placeCastles(room){
     return assigns;
 }
 
-/* ═══════════════════ BOT SİSTEMİ ═══════════════════ */
-let botN=0;
-const BOTS=['Kara Şövalye','Ejderha Lordu','Gölge Büyücü','Fırtına Savaşçı','Buz Kralı','Ateş Prensesi',
-            'Yıldız Okçu','Demir Yumruk','Gece Kurtları','Şafak Muhafızı'];
-
-function addBot(room){
-    botN++;
-    const bot={
-        id:`bot_${botN}_${Date.now()}`,
-        name:BOTS[(botN-1)%BOTS.length],
-        color:C.COLORS[room.players.length%C.COLORS.length],
-        ready:true, isHost:false, isBot:true, eliminated:false,
-        conquestScore:0, defenseScore:0,
-        powerUps:{fiftyFifty:1,extraTime:1,spy:1}
-    };
-    room.players.push(bot);
-    return bot;
-}
-
-function botExpansion(room,bid){
-    if(!room.currentQuestion) return;
-    const correct=room.currentQuestion.a;
-    const v=0.5+Math.random()*1.0;
-    const ans=Math.round(correct*v);
-    const delay=1500+Math.random()*9000;
-    setTimeout(()=>{
-        if(!room.currentAnswers[bid] && room.phase==='expansion'){
-            room.currentAnswers[bid]={value:ans, time:delay};
-            checkAllAnswered(room);
-        }
-    }, delay);
-}
-
-function botSelect(room,bid){
-    const sel=selectable(room,bid);
-    if(!sel.length) return;
-    setTimeout(()=>{
-        if(room.selectingPlayer===bid)
-            handleSelect(room.code, bid, sel[Math.floor(Math.random()*sel.length)]);
-    }, 600+Math.random()*2000);
-}
-
-function botAttack(room,bid){
-    const att=attackable(room,bid);
-    setTimeout(()=>{
-        if(room.phase==='battle' && !room.currentAttacks[bid]){
-            room.currentAttacks[bid] = att.length>0 && Math.random()>0.15
-                ? att[Math.floor(Math.random()*att.length)] : -1;
-            checkAttacks(room);
-        }
-    }, 800+Math.random()*4000);
-}
-
-function botBattle(room,bid){
-    if(!room.currentBattleQuestion) return;
-    const correct=room.currentBattleQuestion.a;
-    setTimeout(()=>{
-        if(!room.battleAnswers[bid]){
-            const ans = Math.random()<0.5 ? correct : [0,1,2,3].filter(i=>i!==correct)[Math.floor(Math.random()*3)];
-            room.battleAnswers[bid]={answer:ans, time:1000+Math.random()*10000};
-            checkBattle(room);
-        }
-    }, 1000+Math.random()*10000);
-}
-
-function botTiebreaker(room,bid){
-    if(!room.tiebreakerQuestion) return;
-    const correct=room.tiebreakerQuestion.a;
-    setTimeout(()=>{
-        if(!room.tiebreakerAnswers[bid]){
-            room.tiebreakerAnswers[bid]={value:Math.round(correct*(0.5+Math.random())), time:1500+Math.random()*8000};
-            checkTiebreaker(room);
-        }
-    }, 1500+Math.random()*8000);
-}
-
 /* ═══════════════════ CHECK HELPERS ═══════════════════ */
 function checkAllAnswered(room){
     if(Object.keys(room.currentAnswers).length >= alive(room).length){
@@ -333,7 +257,6 @@ function startExpansion(code){
         question:q.q, unit:q.unit||'', timeLimit:C.EXPANSION_TIME
     });
 
-    room.players.filter(p=>p.isBot&&!p.eliminated).forEach(b=>botExpansion(room,b.id));
     room.questionTimer=setTimeout(()=>resolveExpansion(code), (C.EXPANSION_TIME+1)*1000);
 }
 
@@ -389,8 +312,6 @@ function startSelection(code){
         picksLeft:left
     });
 
-    if(p.isBot){ botSelect(room,pid); return; }
-
     room.selectionTimer=setTimeout(()=>{
         if(room.selectingPlayer===pid && sel.length>0)
             handleSelect(code,pid,sel[Math.floor(Math.random()*sel.length)]);
@@ -437,7 +358,6 @@ function startBattle(code){
         timeLimit:C.ATTACK_SELECT_TIME
     });
 
-    room.players.filter(p=>p.isBot&&!p.eliminated).forEach(b=>botAttack(room,b.id));
     room.attackTimer=setTimeout(()=>{
         alive(room).forEach(p=>{ if(!room.currentAttacks[p.id]) room.currentAttacks[p.id]=-1; });
         resolveAttacks(code);
@@ -483,11 +403,6 @@ function nextBattle(code){
     io.to(code).emit('battleQuestion',{
         battle:b, question:q.q, options:[...q.o], timeLimit:C.BATTLE_TIME
     });
-
-    const aP=room.players.find(p=>p.id===b.attackerId);
-    const dP=room.players.find(p=>p.id===b.defenderId);
-    if(aP&&aP.isBot) botBattle(room,b.attackerId);
-    if(dP&&dP.isBot) botBattle(room,b.defenderId);
 
     room.battleQuestionTimer=setTimeout(()=>resolveBattle(code), (C.BATTLE_TIME+1)*1000);
 }
@@ -537,11 +452,6 @@ function startTiebreakerQ(code){
     io.to(code).emit('tiebreakerQuestion',{
         battle:b, question:q.q, unit:q.unit||'', timeLimit:C.TIEBREAKER_TIME
     });
-
-    const aP=room.players.find(p=>p.id===b.attackerId);
-    const dP=room.players.find(p=>p.id===b.defenderId);
-    if(aP&&aP.isBot) botTiebreaker(room,b.attackerId);
-    if(dP&&dP.isBot) botTiebreaker(room,b.defenderId);
 
     room.tiebreakerTimer=setTimeout(()=>resolveTiebreakerQ(code), (C.TIEBREAKER_TIME+1)*1000);
 }
@@ -734,13 +644,7 @@ io.on('connection', socket=>{
         const p=room.players.find(x=>x.id===socket.id);
         if(!p||!p.isHost) return socket.emit('error',{msg:'Sadece host başlatabilir!'});
         if(room.state!=='lobby') return;
-        if(room.players.length<2){
-            if(room.players.some(x=>x.name.toLowerCase()==='dgmixa')){
-                const bot=addBot(room);
-                io.to(socket.roomCode).emit('playerList',{players:safeList(room)});
-                io.to(socket.roomCode).emit('toast',{msg:`${bot.name} (Bot) katıldı!`,type:'info'});
-            } else return socket.emit('error',{msg:'En az 2 oyuncu gerekli!'});
-        }
+        if(room.players.length<2) return socket.emit('error',{msg:'En az 2 oyuncu gerekli!'});
         startGame(socket.roomCode);
     });
 
@@ -798,7 +702,6 @@ io.on('connection', socket=>{
         if(!p||!p.isHost) return;
         room.state='lobby'; room.phase=null; room.map=[];
         room.expansionRound=0; room.battleRound=0; room.shrinkLevel=0;
-        room.players=room.players.filter(x=>!x.isBot);
         room.players.forEach(x=>{
             x.ready=false; x.eliminated=false;
             x.conquestScore=0; x.defenseScore=0; x.powerUps={};

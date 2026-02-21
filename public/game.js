@@ -638,7 +638,7 @@ socket.on('playerList',d=>{
     d.players.forEach(p=>{
         const c=document.createElement('div');
         c.className='player-card'+(p.ready?' is-ready':'')+(p.isHost?' is-host':'');
-        c.innerHTML=`<div class="pc-avatar" style="background:${p.color}">${p.name.charAt(0).toUpperCase()}</div><div class="pc-name">${p.name}${p.isBot?' (Bot)':''}</div>${p.isHost?'<span class="pc-badge host">HOST</span>':''}${p.ready?'<span class="pc-badge ready">HAZIR</span>':''}`;
+        c.innerHTML=`<div class="pc-avatar" style="background:${p.color}">${p.name.charAt(0).toUpperCase()}</div><div class="pc-name">${p.name}</div>${p.isHost?'<span class="pc-badge host">HOST</span>':''}${p.ready?'<span class="pc-badge ready">HAZIR</span>':''}`;
         grid.appendChild(c);
     });
     const me=d.players.find(p=>p.id===S.myId);
@@ -646,7 +646,7 @@ socket.on('playerList',d=>{
     if(me&&me.ready){rb.classList.add('is-ready');rb.textContent='Hazır!';}
     else{rb.classList.remove('is-ready');rb.textContent='Hazırım!';}
     const sb=document.getElementById('btnStartGame');
-    if(me&&me.isHost){S.isHost=true;sb.style.display='';const can=d.players.length>=2||me.name.toLowerCase()==='dgmixa';can?sb.classList.remove('disabled'):sb.classList.add('disabled');}
+    if(me&&me.isHost){S.isHost=true;sb.style.display='';const can=d.players.length>=2;can?sb.classList.remove('disabled'):sb.classList.add('disabled');}
     else sb.style.display='none';
     document.getElementById('lobbyStatus').textContent=`${d.players.length} oyuncu | ${d.players.filter(p=>p.ready).length} hazır`;
     // Renk grid güncelle
