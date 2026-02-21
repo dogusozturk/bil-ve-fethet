@@ -246,40 +246,62 @@ const Map = {
         S.selectable=[]; S.attackable=[];
     },
 
-    animCastle(assignments, cb){
-        // No overlay - animate castles directly on the map
+    animCastle(assignments, fullMap, cb){
+        // Animate castles one by one directly on the map (no overlay)
         let i=0;
         const next=()=>{
             if(i>=assignments.length){
-                // All castles placed, start countdown
+                // All castles placed — brief pause then countdown
                 setTimeout(()=>{
                     this.showCastleCountdown(cb);
-                },700);
+                },800);
                 return;
             }
             const a=assignments[i];
             const p=S.players.find(x=>x.id===a.playerId);
-            const r=S.map.find(x=>x.id===a.regionId);
+            // Use fullMap for correct x,y coords
+            const r=fullMap.find(x=>x.id===a.regionId);
+            if(!r){ i++; setTimeout(next,200); return; }
 
-            // Show toast for each castle placement
-            if(p&&r) UI.toast(`${p.name} → ${r.name}`,'ok');
+            // Show who is placing
+            if(p) UI.toast(`🏰 ${p.name} → ${r.name}`,'ok');
 
             const g=document.querySelector(`.map-region[data-id="${a.regionId}"]`);
             if(g){
-                const path=g.querySelector('.rp');
-                if(path&&p){path.setAttribute('fill',p.color);path.setAttribute('fill-opacity','.5');path.setAttribute('stroke',p.color);}
+                // 1. Color the region with player color (fade in effect)
+                const pathEl=g.querySelector('.rp');
+                if(pathEl&&p){
+                    pathEl.style.transition='fill .6s ease, fill-opacity .6s ease, stroke .6s ease';
+                    pathEl.setAttribute('fill',p.color);
+                    pathEl.setAttribute('fill-opacity','0.5');
+                    pathEl.setAttribute('stroke',p.color);
+                    pathEl.setAttribute('stroke-opacity','0.9');
+                }
 
-                const c=this._el('text',{x:r.x,y:r.y+5,class:'rc castle-drop'});
-                c.textContent='\u{1F3F0}'; g.appendChild(c);
-                const hp=this._el('text',{x:r.x,y:r.y+13,class:'rh castle-drop'});
-                hp.textContent='\u2764\u2764\u2764'; g.appendChild(hp);
+                // 2. Move label up to make room for castle
                 const lbl=g.querySelector('.rl');
-                if(lbl) lbl.setAttribute('y',r.y-7);
+                if(lbl){
+                    lbl.style.transition='all .4s ease';
+                    lbl.setAttribute('y', r.y-9);
+                }
+
+                // 3. Add castle emoji with drop animation
+                const c=this._el('text',{x:r.x, y:r.y+6, class:'rc castle-drop'});
+                c.textContent='\u{1F3F0}';
+                g.appendChild(c);
+
+                // 4. Add HP hearts with drop animation (slight delay)
+                setTimeout(()=>{
+                    const hp=this._el('text',{x:r.x, y:r.y+13, class:'rh castle-drop'});
+                    hp.textContent='\u2764\u2764\u2764';
+                    g.appendChild(hp);
+                },300);
+
                 SFX.play('castle');
             }
-            i++; setTimeout(next,1300);
+            i++; setTimeout(next,1200);
         };
-        setTimeout(next,500);
+        setTimeout(next,600);
     },
 
     showCastleCountdown(cb){
@@ -651,20 +673,24 @@ socket.on('playerList',d=>{
 });
 
 socket.on('gameStarted',d=>{
-    S.map=d.map; S.players=d.players; S.phase='setup';
+    S.fullMap=d.map; S.players=d.players; S.phase='setup';
     S.expRounds=d.totalExpansionRounds; S.batRounds=d.totalBattleRounds;
     S.curExp=0; S.curBat=0;
     UI.goTo('gameScreen');
 
-    // İlk render kalelersiz
+    // İlk render: tamamen boş harita (kale yok, owner yok)
     const clean=d.map.map(r=>({...r,hasBase:false,owner:null,baseHp:0}));
     S.map=clean; Map.render(S.map); renderBar(); updatePU(); renderTracker();
     document.getElementById('phaseBadge').textContent='Hazırlık';
     document.getElementById('roundInfo').textContent='Kaleler kuruluyor...';
 
+    // Kısa gecikme sonra animasyonla tek tek kaleleri yerleştir
     setTimeout(()=>{
-        S.map=d.map; Map.render(S.map);
-        Map.animCastle(d.castleAssignments,()=>{renderBar();UI.toast('Genişleme başlıyor!','ok');});
+        Map.animCastle(d.castleAssignments, d.map, ()=>{
+            // Animasyon bitti, artık full map'i uygula
+            S.map=d.map; Map.render(S.map);
+            renderBar(); UI.toast('Genişleme başlıyor!','ok');
+        });
     },400);
     SFX.play('win');
 });
