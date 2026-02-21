@@ -21,10 +21,9 @@ const C = {
     CASTLE_HP: 3,
     EXPANSION_TIME: 15,       // tahmin süresi (sn)
     TERRITORY_SELECT_TIME: 10,
-    BATTLE_TIME: 20,
+    BATTLE_TIME: 10,
     ATTACK_SELECT_TIME: 15,
     TIEBREAKER_TIME: 15,
-    SHRINK_EVERY: 3,
     SCORE_BASE: 1000,
     SCORE_REGION: 200,
     SCORE_CONQUEST: 400,
@@ -90,6 +89,19 @@ function selectable(room, pid){
         if(nr && !nr.burned && !nr.owner) s.add(nid);
     }
     return s.size ? [...s] : emptyRegions(room).map(r=>r.id);
+}
+
+function autoDistribute(room){
+    const empty=emptyRegions(room);
+    if(!empty.length) return;
+    const ap=alive(room);
+    if(!ap.length) return;
+    // Sırayla oyunculara dağıt — en az bölgesi olan önce
+    const shuffled=[...empty].sort(()=>Math.random()-.5);
+    for(const r of shuffled){
+        ap.sort((a,b)=>regionCount(room,a.id)-regionCount(room,b.id));
+        r.owner=ap[0].id;
+    }
 }
 
 function alive(room){ return room.players.filter(p=>!p.eliminated); }
@@ -227,16 +239,64 @@ function startGame(code){
         p.eliminated=false; p.conquestScore=0; p.defenseScore=0;
         p.powerUps={fiftyFifty:1,extraTime:1,spy:1};
     });
-    const castles=placeCastles(room);
+
+    // Manuel kale yerleştirme: sırayla oyuncular seçecek
+    room.castleQueue=room.players.map(p=>p.id);
+    room.castleQueueIndex=0;
 
     io.to(code).emit('gameStarted',{
-        map:room.map, players:safeList(room), castleAssignments:castles,
+        map:room.map, players:safeList(room),
         totalExpansionRounds:C.EXPANSION_ROUNDS, totalBattleRounds:C.BATTLE_ROUNDS
     });
 
-    // Castle anim (~1.3s * player count) + 10s countdown + buffer
-    const castleDelay = Math.max(16000, castles.length * 1300 + 12000);
-    setTimeout(()=>startExpansion(code), castleDelay);
+    setTimeout(()=>nextCastleTurn(code), 1500);
+}
+
+function nextCastleTurn(code){
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
+    if(room.castleQueueIndex>=room.castleQueue.length){
+        // Tüm kaleler yerleştirildi, genişlemeye geç
+        io.to(code).emit('allCastlesPlaced',{map:room.map, players:safeList(room)});
+        setTimeout(()=>startExpansion(code), 2000);
+        return;
+    }
+    const pid=room.castleQueue[room.castleQueueIndex];
+    const p=room.players.find(x=>x.id===pid);
+    if(!p){ room.castleQueueIndex++; nextCastleTurn(code); return; }
+
+    room.placingCastle=pid;
+    const available=room.map.filter(r=>!r.owner && !r.burned).map(r=>r.id);
+
+    io.to(code).emit('castleTurn',{
+        playerId:pid, playerName:p.name, playerColor:p.color,
+        availableRegions:available, timeLimit:C.TERRITORY_SELECT_TIME,
+        turnIndex:room.castleQueueIndex, totalTurns:room.castleQueue.length
+    });
+
+    room.castleTimer=setTimeout(()=>{
+        if(room.placingCastle===pid && available.length>0){
+            handleCastlePlace(code, pid, available[Math.floor(Math.random()*available.length)]);
+        }
+    }, (C.TERRITORY_SELECT_TIME+1)*1000);
+}
+
+function handleCastlePlace(code, pid, regionId){
+    const room=rooms.get(code); if(!room||room.placingCastle!==pid) return;
+    clearTimeout(room.castleTimer);
+    const r=room.map.find(x=>x.id===regionId);
+    if(!r||r.owner||r.burned) return;
+    r.owner=pid; r.hasBase=true; r.baseHp=C.CASTLE_HP;
+    room.placingCastle=null;
+    room.castleQueueIndex++;
+
+    const p=room.players.find(x=>x.id===pid);
+    io.to(code).emit('castlePlaced',{
+        playerId:pid, regionId, regionName:r.name,
+        playerName:p?p.name:'', playerColor:p?p.color:'',
+        map:room.map, players:safeList(room)
+    });
+
+    setTimeout(()=>nextCastleTurn(code), 1200);
 }
 
 /* ═══════════════════ GENİŞLEME ═══════════════════ */
@@ -244,6 +304,9 @@ function startExpansion(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     room.expansionRound++;
     if(room.expansionRound > C.EXPANSION_ROUNDS){
+        // Kalan boş şehirleri otomatik dağıt
+        autoDistribute(room);
+        io.to(code).emit('autoDistributed',{map:room.map, players:safeList(room)});
         io.to(code).emit('phaseChange',{phase:'battle'});
         setTimeout(()=>startBattle(code), 2500);
         return;
@@ -276,20 +339,21 @@ function resolveExpansion(code){
     const dartResults=results.map((r,i)=>({
         ...r, rank:i+1,
         dartDistance: r.diff===Infinity ? 1 : Math.min(r.diff/(maxDiff*1.2),1),
-        territoryPicks: i===0?2:(i===1?1:0)
+        territoryPicks: i===0?2:(i<=2?1:0)
     }));
 
-    // Seçim kuyruğu: 1.→2 seçim, 2.→1 seçim
+    // Seçim kuyruğu: 1.→2 seçim, 2.→1 seçim, 3.→1 seçim
     room.selectionQueue=[];
     if(dartResults.length>0){ room.selectionQueue.push(dartResults[0].playerId, dartResults[0].playerId); }
     if(dartResults.length>1){ room.selectionQueue.push(dartResults[1].playerId); }
+    if(dartResults.length>2){ room.selectionQueue.push(dartResults[2].playerId); }
     room.selectionIndex=0;
 
     io.to(code).emit('expansionResults',{
         correctAnswer:correct, unit:room.currentQuestion.unit||'', rankings:dartResults
     });
 
-    setTimeout(()=>startSelection(code), 5500);
+    setTimeout(()=>startSelection(code), 8000);
 }
 
 function startSelection(code){
@@ -339,29 +403,68 @@ function startBattle(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     room.battleRound++;
 
-    // Daralma
-    if(room.battleRound>1 && (room.battleRound-1)%C.SHRINK_EVERY===0){
-        shrinkMap(code); return;
-    }
     if(room.battleRound>C.BATTLE_ROUNDS || alive(room).length<=1){
         endGame(code); return;
     }
 
     room.phase='battle'; room.currentAttacks={};
-    const ap=alive(room);
-    const opts={};
-    for(const p of ap) opts[p.id]=attackable(room,p.id);
+    // Sıralı saldırı: oyuncu listesini hazırla
+    room.attackQueue=alive(room).map(p=>p.id);
+    room.attackQueueIndex=0;
 
-    io.to(code).emit('battlePhase',{
+    io.to(code).emit('battleRoundStart',{
         round:room.battleRound, totalRounds:C.BATTLE_ROUNDS,
-        attackOptions:opts, players:safeList(room), map:room.map,
-        timeLimit:C.ATTACK_SELECT_TIME
+        players:safeList(room), map:room.map
+    });
+
+    setTimeout(()=>nextAttackTurn(code), 800);
+}
+
+function nextAttackTurn(code){
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
+    if(room.attackQueueIndex>=room.attackQueue.length){
+        // Tüm oyuncular seçti, savaşları başlat
+        resolveAttacks(code);
+        return;
+    }
+    const pid=room.attackQueue[room.attackQueueIndex];
+    const p=room.players.find(x=>x.id===pid);
+    if(!p||p.eliminated){ room.attackQueueIndex++; nextAttackTurn(code); return; }
+
+    const opts=attackable(room,pid);
+    room.attackingPlayer=pid;
+
+    io.to(code).emit('attackTurn',{
+        playerId:pid, playerName:p.name, playerColor:p.color,
+        attackOptions:opts, timeLimit:C.ATTACK_SELECT_TIME,
+        turnIndex:room.attackQueueIndex, totalTurns:room.attackQueue.length,
+        round:room.battleRound, totalRounds:C.BATTLE_ROUNDS,
+        players:safeList(room), map:room.map
     });
 
     room.attackTimer=setTimeout(()=>{
-        alive(room).forEach(p=>{ if(!room.currentAttacks[p.id]) room.currentAttacks[p.id]=-1; });
-        resolveAttacks(code);
+        if(room.attackingPlayer===pid){
+            room.currentAttacks[pid]=-1;
+            room.attackingPlayer=null;
+            room.attackQueueIndex++;
+            nextAttackTurn(code);
+        }
     }, (C.ATTACK_SELECT_TIME+1)*1000);
+}
+
+function handleAttackSelect(code, pid, regionId){
+    const room=rooms.get(code); if(!room||room.attackingPlayer!==pid) return;
+    clearTimeout(room.attackTimer);
+    room.currentAttacks[pid]=regionId!=null?regionId:-1;
+    room.attackingPlayer=null;
+    room.attackQueueIndex++;
+
+    io.to(code).emit('attackSelected',{
+        playerId:pid, regionId,
+        turnIndex:room.attackQueueIndex, totalTurns:room.attackQueue.length
+    });
+
+    setTimeout(()=>nextAttackTurn(code), 800);
 }
 
 function resolveAttacks(code){
@@ -478,7 +581,9 @@ function resolveTiebreakerQ(code){
     io.to(code).emit('tiebreakerResult',{
         battle:b, correctAnswer:correct, unit:room.tiebreakerQuestion.unit||'',
         attackerAnswer:aA?aA.value:null, defenderAnswer:dA?dA.value:null,
-        attackerDiff:aD===Infinity?null:aD, defenderDiff:dD===Infinity?null:dD, winner
+        attackerDiff:aD===Infinity?null:aD, defenderDiff:dD===Infinity?null:dD,
+        attackerTime:aA?aA.time:null, defenderTime:dA?dA.time:null,
+        winner, reason
     });
 
     setTimeout(()=>applyBattle(code, winner, reason), 3500);
@@ -662,11 +767,16 @@ io.on('connection', socket=>{
         handleSelect(socket.roomCode, socket.id, regionId);
     });
 
+    socket.on('placeCastle', ({regionId})=>{
+        const room=rooms.get(socket.roomCode);
+        if(!room||room.placingCastle!==socket.id) return;
+        handleCastlePlace(socket.roomCode, socket.id, regionId);
+    });
+
     socket.on('selectAttack', ({regionId})=>{
         const room=rooms.get(socket.roomCode);
         if(!room||room.phase!=='battle') return;
-        room.currentAttacks[socket.id] = regionId!=null ? regionId : -1;
-        checkAttacks(room);
+        handleAttackSelect(socket.roomCode, socket.id, regionId);
     });
 
     socket.on('submitBattleAnswer', ({answer})=>{

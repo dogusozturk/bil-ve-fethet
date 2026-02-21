@@ -414,6 +414,15 @@ function showDart(rankings, correct, unit){
 
     const size=280, center=size/2, maxR=130;
 
+    // Eşit diff'e sahip oyuncular arasında hız kazananını bul
+    let speedWinnerId=null;
+    for(let i=0;i<rankings.length-1;i++){
+        const a=rankings[i], b=rankings[i+1];
+        if(a.diff===b.diff && a.diff!==Infinity && a.time<b.time){
+            speedWinnerId=a.playerId; break;
+        }
+    }
+
     rankings.forEach((r,i)=>{
         const arrow=document.createElement('div');
         arrow.className='dart-arrow';
@@ -433,7 +442,6 @@ function showDart(rankings, correct, unit){
         flights.className='dart-flights';
         flights.style.setProperty('--fc', r.color);
         flights.style.cssText+=`;`;
-        // Set flight colors via pseudo-elements won't work inline, use bg
         const flStyle=document.createElement('style');
         flStyle.textContent=`.dart-arrow:nth-child(${i+1}) .dart-flights::before,.dart-arrow:nth-child(${i+1}) .dart-flights::after{background:${r.color}}`;
         document.head.appendChild(flStyle);
@@ -451,21 +459,36 @@ function showDart(rankings, correct, unit){
         badge.textContent=r.rank;
         arrow.appendChild(badge);
 
-        // Name label
-        const lbl=document.createElement('span');
-        lbl.className='al'; lbl.textContent=r.name;
-        arrow.appendChild(lbl);
+        // Name + time bubble (resim gibi balonlu etiket)
+        const bubble=document.createElement('div');
+        bubble.className='dart-bubble';
+        bubble.style.borderColor=r.color;
+        bubble.style.setProperty('--bc', r.color);
+
+        const timeSec=r.time!==null&&r.time!==Infinity?(r.time/1000).toFixed(2):null;
+        const isSpeedWin=speedWinnerId===r.playerId;
+        const isBest=i===0&&r.diff!==Infinity;
+
+        bubble.innerHTML=`<span class="db-name" style="color:${r.color}">${r.name}</span>`+
+            `<span class="db-time">${timeSec?timeSec+'s':'---'}</span>`+
+            (isSpeedWin?`<span class="db-fast">Hizli</span>`:'');
+        arrow.appendChild(bubble);
+
         arrows.appendChild(arrow);
 
         setTimeout(()=>{arrow.classList.add('vis');SFX.play('dart');},500+i*550);
 
-        const item=document.createElement('div'); item.className='dr-item';
+        const timeTxt=timeSec?`${timeSec}s`:'yok';
+        const speedTag=isSpeedWin?`<span class="dr-speed">Hizli</span>`:'';
+        const item=document.createElement('div'); item.className='dr-item'+(isBest?' dr-best':'');
         item.innerHTML=`
             <span class="dr-rank">#${r.rank}</span>
             <div class="dr-dot" style="background:${r.color}"></div>
             <span class="dr-name">${r.name}${r.playerId===S.myId?' (Sen)':''}</span>
             <span class="dr-ans">${r.answer!==null?r.answer:'-'}</span>
-            <span class="dr-diff">${r.diff!==null&&r.diff!==Infinity?'(±'+Math.round(r.diff)+')':'(yok)'}</span>
+            <span class="dr-diff">${r.diff!==null&&r.diff!==Infinity?'±'+Math.round(r.diff):'---'}</span>
+            <span class="dr-time">${timeTxt}</span>
+            ${speedTag}
             <span class="dr-picks">${r.territoryPicks>0?r.territoryPicks+' seçim':''}</span>
         `;
         ranks.appendChild(item);
@@ -747,6 +770,12 @@ socket.on('territorySelected',d=>{
     if(p) UI.toast(`${p.name} → ${d.regionName}`,'info');
 });
 
+socket.on('autoDistributed',d=>{
+    if(S.phase===null) return;
+    S.map=d.map; S.players=d.players; Map.render(S.map); renderBar();
+    UI.toast('Kalan bölgeler otomatik dağıtıldı!','info');
+});
+
 socket.on('phaseChange',d=>{
     if(S.phase===null) return;
     if(d.phase==='battle'){
@@ -767,19 +796,46 @@ socket.on('battlePhase',d=>{
     document.getElementById('phaseBadge').classList.add('battle');
     document.getElementById('roundInfo').textContent=`Savaş ${d.round}/${d.totalRounds}`;
     renderTracker(); Map.render(S.map); renderBar(); updatePU(); UI.hideAll();
+});
 
-    const my=d.attackOptions[S.myId]||[];
-    if(my.length>0){
-        Map.hiAtk(my);
-        document.getElementById('attackText').textContent='Saldıracağın bölgeyi seç!';
-        UI.show('attackOverlay');
-        startTimer(d.timeLimit, document.getElementById('attackTimer'), document.getElementById('attackTimerCircle'), ()=>{
-            socket.emit('selectAttack',{regionId:null}); Map.clear(); UI.hide('attackOverlay');
-        });
+socket.on('battleRoundStart',d=>{
+    if(S.phase===null) return;
+    S.phase='battle'; S.map=d.map; S.players=d.players; S.curBat=d.round;
+    document.getElementById('phaseBadge').textContent='Savaş';
+    document.getElementById('phaseBadge').classList.add('battle');
+    document.getElementById('roundInfo').textContent=`Savaş ${d.round}/${d.totalRounds}`;
+    renderTracker(); Map.render(S.map); renderBar(); updatePU(); UI.hideAll();
+});
+
+socket.on('attackTurn',d=>{
+    if(S.phase===null) return;
+    S.map=d.map; S.players=d.players; S.curBat=d.round;
+    Map.render(S.map); renderBar(); UI.hideAll();
+    document.getElementById('roundInfo').textContent=`Savaş ${d.round}/${d.totalRounds}`;
+
+    if(d.playerId===S.myId){
+        // Benim sıram
+        const my=d.attackOptions||[];
+        if(my.length>0){
+            Map.hiAtk(my);
+            document.getElementById('attackText').textContent='Saldıracağın bölgeyi seç!';
+            UI.show('attackOverlay');
+            startTimer(d.timeLimit, document.getElementById('attackTimer'), document.getElementById('attackTimerCircle'), ()=>{
+                socket.emit('selectAttack',{regionId:null}); Map.clear(); UI.hide('attackOverlay');
+            });
+        } else {
+            socket.emit('selectAttack',{regionId:null});
+            UI.toast('Saldıracak bölge yok','info');
+        }
     } else {
-        socket.emit('selectAttack',{regionId:null});
-        UI.toast('Saldıracak bölge yok','info');
+        // Başkasının sırası — bekle
+        UI.toast(`⚔️ ${d.playerName} saldırı seçiyor...`,'info');
     }
+});
+
+socket.on('attackSelected',d=>{
+    if(S.phase===null) return;
+    // Saldırı seçildi bildirimi (opsiyonel)
 });
 
 socket.on('battleQuestion',d=>{
@@ -911,23 +967,32 @@ socket.on('tiebreakerResult',d=>{
         resDiv.className='tb-results';
         tbBox.appendChild(resDiv);
     }
+    const attTimeTxt=d.attackerTime!==null?(d.attackerTime/1000).toFixed(2)+'s':'---';
+    const defTimeTxt=d.defenderTime!==null?(d.defenderTime/1000).toFixed(2)+'s':'---';
+    const isSpeedTie=d.reason==='tiebreaker_faster';
+    const attSpeedTag=isSpeedTie&&d.winner===d.battle.attackerId?'<span class="tb-reveal-speed">Hizli</span>':'';
+    const defSpeedTag=isSpeedTie&&d.winner===d.battle.defenderId?'<span class="tb-reveal-speed">Hizli</span>':'';
     resDiv.innerHTML=`
         <div class="tb-reveal">
             <div class="tb-reveal-row">
                 <span class="tb-reveal-dot" style="background:${att?att.color:'#e74c3c'}"></span>
                 <span class="tb-reveal-name">${d.battle.attackerName}</span>
                 <span class="tb-reveal-ans">${d.attackerAnswer!==null?d.attackerAnswer:'-'}</span>
-                <span class="tb-reveal-diff">${d.attackerDiff!==null?'(±'+Math.round(d.attackerDiff)+')':'(cevap yok)'}</span>
-                ${d.winner===d.battle.attackerId?'<span class="tb-reveal-win">✓</span>':''}
+                <span class="tb-reveal-diff">${d.attackerDiff!==null?'±'+Math.round(d.attackerDiff):'---'}</span>
+                <span class="tb-reveal-time">${attTimeTxt}</span>
+                ${attSpeedTag}
+                ${d.winner===d.battle.attackerId?'<span class="tb-reveal-win">&#10003;</span>':''}
             </div>
             <div class="tb-reveal-row">
                 <span class="tb-reveal-dot" style="background:${def?def.color:'#3498db'}"></span>
                 <span class="tb-reveal-name">${d.battle.defenderName}</span>
                 <span class="tb-reveal-ans">${d.defenderAnswer!==null?d.defenderAnswer:'-'}</span>
-                <span class="tb-reveal-diff">${d.defenderDiff!==null?'(±'+Math.round(d.defenderDiff)+')':'(cevap yok)'}</span>
-                ${d.winner===d.battle.defenderId?'<span class="tb-reveal-win">✓</span>':''}
+                <span class="tb-reveal-diff">${d.defenderDiff!==null?'±'+Math.round(d.defenderDiff):'---'}</span>
+                <span class="tb-reveal-time">${defTimeTxt}</span>
+                ${defSpeedTag}
+                ${d.winner===d.battle.defenderId?'<span class="tb-reveal-win">&#10003;</span>':''}
             </div>
-            <div class="tb-reveal-correct">Doğru: ${d.correctAnswer} ${d.unit}</div>
+            <div class="tb-reveal-correct">Dogru: ${d.correctAnswer} ${d.unit}</div>
         </div>
     `;
     UI.toast(`${w?w.name:'?'} ek soruyu kazandı!`,'info');
@@ -938,7 +1003,7 @@ socket.on('battleResult',d=>{
     UI.hideAll(); stopTimer(); S.battle=null;
     S.map=d.map; S.players=d.players; Map.render(S.map); renderBar();
     const w=S.players.find(p=>p.id===d.winner);
-    const icon=d.winner===d.battle.attackerId?'\u2694\uFE0F':(d.winner===d.battle.defenderId?'\u{1F6E1}\uFE0F':'\u{1F91D}');
+    const icon=d.winner===d.battle.attackerId?'S':(d.winner===d.battle.defenderId?'D':'=');
     document.getElementById('brIcon').textContent=icon;
     if(d.winner){
         document.getElementById('brTitle').textContent=`${w?w.name:'?'} Kazandı!`;
