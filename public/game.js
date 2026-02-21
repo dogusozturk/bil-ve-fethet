@@ -650,25 +650,28 @@ socket.on('roomJoined',d=>{
     UI.goTo('lobbyScreen');
 });
 
-socket.on('playerList',d=>{
-    S.players=d.players;
+function renderLobbyPlayers(){
     const grid=document.getElementById('playerGrid'); grid.innerHTML='';
-    d.players.forEach(p=>{
+    S.players.forEach(p=>{
         const c=document.createElement('div');
         c.className='player-card'+(p.ready?' is-ready':'')+(p.isHost?' is-host':'');
         c.innerHTML=`<div class="pc-avatar" style="background:${p.color}">${p.name.charAt(0).toUpperCase()}</div><div class="pc-name">${p.name}</div>${p.isHost?'<span class="pc-badge host">HOST</span>':''}${p.ready?'<span class="pc-badge ready">HAZIR</span>':''}`;
         grid.appendChild(c);
     });
-    const me=d.players.find(p=>p.id===S.myId);
+    const me=S.players.find(p=>p.id===S.myId);
     const rb=document.getElementById('btnReady');
     if(me&&me.ready){rb.classList.add('is-ready');rb.textContent='Hazır!';}
     else{rb.classList.remove('is-ready');rb.textContent='Hazırım!';}
     const sb=document.getElementById('btnStartGame');
-    if(me&&me.isHost){S.isHost=true;sb.style.display='';const can=d.players.length>=2;can?sb.classList.remove('disabled'):sb.classList.add('disabled');}
+    if(me&&me.isHost){S.isHost=true;sb.style.display='';const can=S.players.length>=2;can?sb.classList.remove('disabled'):sb.classList.add('disabled');}
     else sb.style.display='none';
-    document.getElementById('lobbyStatus').textContent=`${d.players.length} oyuncu | ${d.players.filter(p=>p.ready).length} hazır`;
-    // Renk grid güncelle
+    document.getElementById('lobbyStatus').textContent=`${S.players.length} oyuncu | ${S.players.filter(p=>p.ready).length} hazır`;
     if(S.allColors.length) buildColorGrid();
+}
+
+socket.on('playerList',d=>{
+    S.players=d.players;
+    renderLobbyPlayers();
     renderBar(); updatePU();
 });
 
@@ -696,6 +699,7 @@ socket.on('gameStarted',d=>{
 });
 
 socket.on('expansionQuestion',d=>{
+    if(S.phase===null) return;
     S.phase='expansion'; S.answered=false; S.curExp=d.round;
     document.getElementById('phaseBadge').textContent='Genişleme';
     document.getElementById('phaseBadge').classList.remove('battle');
@@ -716,9 +720,10 @@ socket.on('expansionQuestion',d=>{
     setTimeout(()=>document.getElementById('qInput').focus(),300);
 });
 
-socket.on('expansionResults',d=>{stopTimer();showDart(d.rankings,d.correctAnswer,d.unit);});
+socket.on('expansionResults',d=>{if(S.phase===null)return;stopTimer();showDart(d.rankings,d.correctAnswer,d.unit);});
 
 socket.on('selectTerritoryTurn',d=>{
+    if(S.phase===null) return;
     UI.hideAll();
     if(d.playerId===S.myId){
         Map.hiSel(d.selectableRegions);
@@ -743,6 +748,7 @@ socket.on('territorySelected',d=>{
 });
 
 socket.on('phaseChange',d=>{
+    if(S.phase===null) return;
     if(d.phase==='battle'){
         S.phase='battle'; S.curBat=0;
         document.getElementById('pcIcon').textContent='\u2694\uFE0F';
@@ -755,6 +761,7 @@ socket.on('phaseChange',d=>{
 });
 
 socket.on('battlePhase',d=>{
+    if(S.phase===null) return;
     S.phase='battle'; S.map=d.map; S.players=d.players; S.curBat=d.round;
     document.getElementById('phaseBadge').textContent='Savaş';
     document.getElementById('phaseBadge').classList.add('battle');
@@ -776,6 +783,7 @@ socket.on('battlePhase',d=>{
 });
 
 socket.on('battleQuestion',d=>{
+    if(S.phase===null) return;
     UI.hideAll(); Map.clear(); S.answered=false; S.battle=d.battle;
     const att=S.players.find(p=>p.id===d.battle.attackerId);
     const def=S.players.find(p=>p.id===d.battle.defenderId);
@@ -804,6 +812,7 @@ socket.on('battleQuestion',d=>{
 });
 
 socket.on('battleAnswerReveal',d=>{
+    if(S.phase===null) return;
     stopTimer();
     const opts=document.querySelectorAll('#battleOptions .q-option');
 
@@ -861,6 +870,7 @@ socket.on('battleAnswerReveal',d=>{
 });
 
 socket.on('tiebreakerQuestion',d=>{
+    if(S.phase===null) return;
     UI.hideAll(); S.answered=false; S.battle=d.battle;
     const isP=d.battle.attackerId===S.myId||d.battle.defenderId===S.myId;
     document.getElementById('tbQText').textContent=d.question;
@@ -882,6 +892,7 @@ socket.on('tiebreakerQuestion',d=>{
 });
 
 socket.on('tiebreakerResult',d=>{
+    if(S.phase===null) return;
     stopTimer();
     const w=S.players.find(p=>p.id===d.winner);
     const att=S.players.find(p=>p.id===d.battle.attackerId);
@@ -923,6 +934,7 @@ socket.on('tiebreakerResult',d=>{
 });
 
 socket.on('battleResult',d=>{
+    if(S.phase===null) return;
     UI.hideAll(); stopTimer(); S.battle=null;
     S.map=d.map; S.players=d.players; Map.render(S.map); renderBar();
     const w=S.players.find(p=>p.id===d.winner);
@@ -946,6 +958,7 @@ socket.on('battleResult',d=>{
 });
 
 socket.on('mapShrink',d=>{
+    if(S.phase===null) return;
     UI.hideAll(); S.map=d.map; S.players=d.players;
     Map.render(S.map); renderBar();
     UI.show('shrinkOverlay'); SFX.play('shrink');
@@ -953,6 +966,8 @@ socket.on('mapShrink',d=>{
 });
 
 socket.on('gameOver',d=>{
+    // Lobiye dönülmüşse gameOver olayını yoksay
+    if(S.phase===null) return;
     UI.hideAll(); stopTimer(); S.players=d.players; S.map=d.map; S.phase='gameover'; renderTracker();
     document.getElementById('goTitle').textContent=`${d.winner.name} Kazandı!`;
     document.getElementById('goTitle').style.color=d.winner.color;
@@ -967,7 +982,15 @@ socket.on('gameOver',d=>{
     UI.goTo('gameOverScreen'); confetti(d.winner.color); SFX.play('win');
 });
 
-socket.on('backToLobby',d=>{S.players=d.players;S.phase=null;S.map=[];S.curExp=0;S.curBat=0;S.battle=null;UI.hideAll();UI.goTo('lobbyScreen');});
+socket.on('backToLobby',d=>{
+    S.players=d.players;S.phase=null;S.map=[];S.curExp=0;S.curBat=0;S.battle=null;
+    stopTimer();
+    UI.hideAll();
+    // gameOverScreen bir .screen olduğu için hideAll onu kapatmaz, tüm ekranları kapat
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    UI.goTo('lobbyScreen');
+    renderLobbyPlayers();
+});
 socket.on('fiftyFiftyResult',d=>{d.removedIndices.forEach(i=>{const b=document.querySelectorAll('#battleOptions .q-option');if(b[i])b[i].classList.add('removed');});UI.toast('50/50!','ok');});
 socket.on('extraTimeGranted',d=>UI.toast(`+${d.extra}s ek süre!`,'ok'));
 socket.on('spyResult',d=>UI.toast(d.msg,'info'));

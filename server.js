@@ -261,7 +261,7 @@ function startExpansion(code){
 }
 
 function resolveExpansion(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.questionTimer);
     const correct=room.currentQuestion.a;
     const ap=alive(room);
@@ -293,7 +293,7 @@ function resolveExpansion(code){
 }
 
 function startSelection(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     if(room.selectionIndex>=room.selectionQueue.length || !emptyRegions(room).length){
         setTimeout(()=>startExpansion(code),800);
         return;
@@ -336,7 +336,7 @@ function handleSelect(code,pid,rid){
 
 /* ═══════════════════ SAVAŞ ═══════════════════ */
 function startBattle(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     room.battleRound++;
 
     // Daralma
@@ -365,7 +365,7 @@ function startBattle(code){
 }
 
 function resolveAttacks(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.attackTimer);
     const battles=[];
     for(const [aid,trid] of Object.entries(room.currentAttacks)){
@@ -388,7 +388,7 @@ function resolveAttacks(code){
 }
 
 function nextBattle(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     if(room.currentBattleIndex>=room.pendingBattles.length){
         const ap=alive(room);
         if(ap.length<=1) endGame(code);
@@ -408,7 +408,7 @@ function nextBattle(code){
 }
 
 function resolveBattle(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.battleQuestionTimer);
     const b=room.pendingBattles[room.currentBattleIndex];
     const q=room.currentBattleQuestion;
@@ -443,7 +443,7 @@ function resolveBattle(code){
 }
 
 function startTiebreakerQ(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     const b=room.pendingBattles[room.currentBattleIndex];
     room.tiebreakerAnswers={};
     const q=numericalQ[Math.floor(Math.random()*numericalQ.length)];
@@ -457,7 +457,7 @@ function startTiebreakerQ(code){
 }
 
 function resolveTiebreakerQ(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.tiebreakerTimer);
     const b=room.pendingBattles[room.currentBattleIndex];
     const correct=room.tiebreakerQuestion.a;
@@ -485,7 +485,7 @@ function resolveTiebreakerQ(code){
 }
 
 function applyBattle(code, winner, reason){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     const b=room.pendingBattles[room.currentBattleIndex];
     const q=room.currentBattleQuestion;
     const tr=room.map.find(r=>r.id===b.targetRegionId);
@@ -526,7 +526,7 @@ function applyBattle(code, winner, reason){
 
 /* ═══════════════════ HARİTA DARALMASI ═══════════════════ */
 function shrinkMap(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
     room.shrinkLevel++;
     const cx=500, cy=245;
     const dists=room.map.filter(r=>!r.burned)
@@ -565,7 +565,7 @@ function shrinkMap(code){
 
 /* ═══════════════════ OYUN SONU ═══════════════════ */
 function endGame(code){
-    const room=rooms.get(code); if(!room) return;
+    const room=rooms.get(code); if(!room||room.state==='lobby') return;
     room.state='finished'; room.phase='gameover';
     const rankings=room.players.map(p=>({
         id:p.id, name:p.name, color:p.color, eliminated:!!p.eliminated,
@@ -700,6 +700,12 @@ io.on('connection', socket=>{
         const room=rooms.get(socket.roomCode); if(!room) return;
         const p=room.players.find(x=>x.id===socket.id);
         if(!p||!p.isHost) return;
+        // Tüm bekleyen zamanlayıcıları temizle
+        clearTimeout(room.questionTimer);
+        clearTimeout(room.selectionTimer);
+        clearTimeout(room.attackTimer);
+        clearTimeout(room.battleQuestionTimer);
+        clearTimeout(room.tiebreakerTimer);
         room.state='lobby'; room.phase=null; room.map=[];
         room.expansionRound=0; room.battleRound=0; room.shrinkLevel=0;
         room.players.forEach(x=>{
