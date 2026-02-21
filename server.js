@@ -14,6 +14,15 @@ const numericalQ = JSON.parse(fs.readFileSync(path.join(__dirname, 'questions', 
 const multipleQ  = JSON.parse(fs.readFileSync(path.join(__dirname, 'questions', 'multiple.json'), 'utf8'));
 const { REGIONS } = require('./public/turkey-map.js');
 
+function pickQuestion(pool, usedSet){
+    const available=pool.filter((_,i)=>!usedSet.has(i));
+    if(!available.length){ usedSet.clear(); return pool[Math.floor(Math.random()*pool.length)]; }
+    const idx=Math.floor(Math.random()*available.length);
+    const q=available[idx];
+    usedSet.add(pool.indexOf(q));
+    return q;
+}
+
 /* ═══════════════════ SABİTLER ═══════════════════ */
 const C = {
     EXPANSION_ROUNDS: 4,
@@ -54,7 +63,8 @@ function createRoom(code, hostPlayer){
         tiebreakerQuestion:null, tiebreakerAnswers:{},
         questionTimer:null, selectionTimer:null, attackTimer:null,
         battleQuestionTimer:null, tiebreakerTimer:null,
-        questionStartTime:0, battleQuestionStart:0, tiebreakerStartTime:0
+        questionStartTime:0, battleQuestionStart:0, tiebreakerStartTime:0,
+        usedNumerical:new Set(), usedMultiple:new Set()
     };
 }
 
@@ -312,7 +322,7 @@ function startExpansion(code){
         return;
     }
     room.phase='expansion'; room.currentAnswers={};
-    const q = numericalQ[Math.floor(Math.random()*numericalQ.length)];
+    const q = pickQuestion(numericalQ, room.usedNumerical);
     room.currentQuestion=q; room.questionStartTime=Date.now();
 
     io.to(code).emit('expansionQuestion',{
@@ -507,7 +517,7 @@ function nextBattle(code){
     // 2.5 saniye sonra soruyu gonder
     setTimeout(()=>{
         if(!room||room.state!=='playing') return;
-        const q=multipleQ[Math.floor(Math.random()*multipleQ.length)];
+        const q=pickQuestion(multipleQ, room.usedMultiple);
         room.currentBattleQuestion=q; room.battleQuestionStart=Date.now();
 
         io.to(code).emit('battleQuestion',{
@@ -557,7 +567,7 @@ function startTiebreakerQ(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     const b=room.pendingBattles[room.currentBattleIndex];
     room.tiebreakerAnswers={};
-    const q=numericalQ[Math.floor(Math.random()*numericalQ.length)];
+    const q=pickQuestion(numericalQ, room.usedNumerical);
     room.tiebreakerQuestion=q; room.tiebreakerStartTime=Date.now();
 
     io.to(code).emit('tiebreakerQuestion',{
@@ -842,6 +852,7 @@ io.on('connection', socket=>{
         clearTimeout(room.tiebreakerTimer);
         room.state='lobby'; room.phase=null; room.map=[];
         room.expansionRound=0; room.battleRound=0; room.shrinkLevel=0;
+        room.usedNumerical=new Set(); room.usedMultiple=new Set();
         room.players.forEach(x=>{
             x.ready=false; x.eliminated=false;
             x.conquestScore=0; x.defenseScore=0; x.powerUps={};

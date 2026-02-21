@@ -258,6 +258,13 @@ input{font-family:var(--f3)}
 .answer-tag{position:absolute;top:-12px;left:50%;transform:translateX(-50%);font-size:.6rem;font-weight:800;color:#fff;padding:3px 10px;border-radius:12px;white-space:nowrap;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,.5);animation:tagPop .4s var(--ease);letter-spacing:.5px}
 @keyframes tagPop{from{transform:translateX(-50%) scale(0) translateY(5px);opacity:0}to{transform:translateX(-50%) scale(1) translateY(0);opacity:1}}
 
+/* Tiebreaker Battle Header */
+.tb-battle-header{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:8px}
+.tb-player{display:flex;flex-direction:column;align-items:center;gap:3px}
+.tb-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:900;color:#fff;border:2px solid rgba(255,255,255,.2)}
+.tb-name{font-size:.7rem;font-weight:700;color:var(--text)}
+.tb-vs{font-size:.85rem;font-weight:900;color:var(--gold);text-shadow:0 0 8px rgba(255,215,0,.4)}
+
 /* Tiebreaker Results */
 .tb-results{margin-top:14px}
 .tb-reveal{display:flex;flex-direction:column;gap:8px}

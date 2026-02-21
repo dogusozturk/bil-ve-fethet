@@ -1004,7 +1004,18 @@ socket.on('battleAnswerReveal',d=>{
 socket.on('tiebreakerQuestion',d=>{
     if(S.phase===null) return;
     UI.hideAll(); S.answered=false; S.battle=d.battle;
+    const att=S.players.find(p=>p.id===d.battle.attackerId);
+    const def=S.players.find(p=>p.id===d.battle.defenderId);
     const isP=d.battle.attackerId===S.myId||d.battle.defenderId===S.myId;
+
+    // Kimlerin savastigi
+    document.getElementById('tbAtkAvatar').textContent=att?att.name.charAt(0):'A';
+    document.getElementById('tbAtkAvatar').style.background=att?att.color:'#e74c3c';
+    document.getElementById('tbAtkName').textContent=d.battle.attackerName;
+    document.getElementById('tbDefAvatar').textContent=def?def.name.charAt(0):'D';
+    document.getElementById('tbDefAvatar').style.background=def?def.color:'#3498db';
+    document.getElementById('tbDefName').textContent=d.battle.defenderName;
+
     document.getElementById('tbQText').textContent=d.question;
     document.getElementById('tbUnit').textContent=d.unit?`(${d.unit})`:'';
     document.getElementById('tbInput').value='';
