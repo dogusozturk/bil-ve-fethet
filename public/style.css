@@ -189,15 +189,6 @@ input{font-family:var(--f3)}
 .q-timer-num.warn{color:var(--red)}
 .q-timer-ring.small .q-timer-num{font-size:.85rem}
 
-/* Castle Overlay */
-.castle-setup-box{background:linear-gradient(135deg,var(--bg2),var(--bg3));border:2px solid var(--gold);border-radius:var(--rL);padding:36px;max-width:380px;width:90%;text-align:center;animation:modalIn .4s var(--ease)}
-.castle-anim-icon{font-size:3.5rem;margin-bottom:10px;animation:bob 2s ease-in-out infinite}
-@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-.castle-setup-box h3{font-family:var(--f2);color:var(--gold);font-size:1.3rem;margin-bottom:6px}
-.castle-setup-box p{color:var(--text2);font-size:.85rem;margin-bottom:14px}
-.castle-progress{width:100%;height:5px;background:var(--bg0);border-radius:3px;overflow:hidden}
-.castle-progress-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--gold2));border-radius:3px;width:0;transition:width .5s var(--ease)}
-
 /* Question Box */
 .question-box{background:linear-gradient(135deg,var(--bg2),var(--bg3));border:2px solid var(--gold);border-radius:var(--rL);padding:28px;max-width:500px;width:92%;text-align:center;animation:modalIn .3s var(--ease)}
 .q-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}

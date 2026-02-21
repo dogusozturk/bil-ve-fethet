@@ -247,17 +247,12 @@ const Map = {
     },
 
     animCastle(assignments, cb){
-        UI.show('castleOverlay');
-        const bar=document.getElementById('castleProgressBar');
-        const txt=document.getElementById('castleText');
+        // No overlay - animate castles directly on the map
         let i=0;
         const next=()=>{
             if(i>=assignments.length){
-                bar.style.width='100%';
-                txt.textContent='Tüm kaleler yerleştirildi!';
-                // Add countdown before starting expansion
+                // All castles placed, start countdown
                 setTimeout(()=>{
-                    UI.hide('castleOverlay');
                     this.showCastleCountdown(cb);
                 },700);
                 return;
@@ -265,8 +260,9 @@ const Map = {
             const a=assignments[i];
             const p=S.players.find(x=>x.id===a.playerId);
             const r=S.map.find(x=>x.id===a.regionId);
-            txt.textContent=`${p?p.name:'?'} kalesini ${r?r.name:'?'} bölgesine kuruyor...`;
-            bar.style.width=((i+1)/assignments.length*100)+'%';
+
+            // Show toast for each castle placement
+            if(p&&r) UI.toast(`${p.name} → ${r.name}`,'ok');
 
             const g=document.querySelector(`.map-region[data-id="${a.regionId}"]`);
             if(g){
