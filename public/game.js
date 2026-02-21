@@ -617,9 +617,7 @@ document.getElementById('battleOptions').addEventListener('click',e=>{
     const btn=e.target.closest('.q-option'); if(!btn||S.answered)return;
     if(!S.battle||( S.battle.attackerId!==S.myId && S.battle.defenderId!==S.myId))return;
     S.answered=true; socket.emit('submitBattleAnswer',{answer:parseInt(btn.dataset.idx)});
-    // Secimi gosterme, battleAnswerReveal bekle
-    document.querySelectorAll('#battleOptions .q-option').forEach(b=>b.style.pointerEvents='none');
-    SFX.play('click');
+    btn.classList.add('selected'); SFX.play('click');
 });
 
 document.getElementById('tbSubmitBtn').addEventListener('click',()=>{
