@@ -447,9 +447,10 @@ function nextAttackTurn(code){
 
     room.attackTimer=setTimeout(()=>{
         if(room.attackingPlayer===pid){
-            room.currentAttacks[pid]=-1;
+            room.currentAttacks[pid]={target:null,source:null};
             room.attackingPlayer=null;
             room.attackQueueIndex++;
+            io.to(code).emit('attackSelected',{playerId:pid,regionId:null,turnIndex:room.attackQueueIndex,totalTurns:room.attackQueue.length});
             nextAttackTurn(code);
         }
     }, (C.ATTACK_SELECT_TIME+1)*1000);
@@ -531,9 +532,10 @@ function finishAttackSelect(code, pid, targetId, sourceId){
 function resolveAttacks(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.attackTimer);
+    room.attackingPlayer=null; room.selectingSource=null;
     const battles=[];
     for(const [aid,atk] of Object.entries(room.currentAttacks)){
-        if(!atk||!atk.target) continue;
+        if(!atk||typeof atk!=='object'||!atk.target) continue;
         const tr=room.map.find(r=>r.id===atk.target);
         if(!tr||!tr.owner) continue;
         const att=room.players.find(p=>p.id===aid);
@@ -562,6 +564,13 @@ function nextBattle(code){
         return;
     }
     const b=room.pendingBattles[room.currentBattleIndex];
+    // Saldiran veya savunan elendiyse bu savasi atla
+    const attP=room.players.find(p=>p.id===b.attackerId);
+    const defP=room.players.find(p=>p.id===b.defenderId);
+    if(!attP||attP.eliminated||!defP||defP.eliminated){
+        room.currentBattleIndex++;
+        nextBattle(code); return;
+    }
     room.battleAnswers={};
 
     // Once kimlerin savastigini goster
@@ -585,7 +594,9 @@ function resolveBattle(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.battleQuestionTimer);
     const b=room.pendingBattles[room.currentBattleIndex];
+    if(!b){ room.currentBattleIndex++; nextBattle(code); return; }
     const q=room.currentBattleQuestion;
+    if(!q){ room.currentBattleIndex++; nextBattle(code); return; }
     const aA=room.battleAnswers[b.attackerId];
     const dA=room.battleAnswers[b.defenderId];
     const aC=aA && aA.answer===q.a;
@@ -619,6 +630,7 @@ function resolveBattle(code){
 function startTiebreakerQ(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     const b=room.pendingBattles[room.currentBattleIndex];
+    if(!b){ room.currentBattleIndex++; nextBattle(code); return; }
     room.tiebreakerAnswers={};
     const q=pickQuestion(numericalQ, room.usedNumerical);
     room.tiebreakerQuestion=q; room.tiebreakerStartTime=Date.now();
@@ -634,6 +646,7 @@ function resolveTiebreakerQ(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.tiebreakerTimer);
     const b=room.pendingBattles[room.currentBattleIndex];
+    if(!b){ room.currentBattleIndex++; nextBattle(code); return; }
     const correct=room.tiebreakerQuestion.a;
     const aA=room.tiebreakerAnswers[b.attackerId];
     const dA=room.tiebreakerAnswers[b.defenderId];
@@ -929,8 +942,13 @@ io.on('connection', socket=>{
         clearTimeout(room.attackTimer);
         clearTimeout(room.battleQuestionTimer);
         clearTimeout(room.tiebreakerTimer);
+        clearTimeout(room.castleTimer);
         room.state='lobby'; room.phase=null; room.map=[];
         room.expansionRound=0; room.battleRound=0; room.shrinkLevel=0;
+        room.placingCastle=null; room.selectingPlayer=null;
+        room.attackingPlayer=null; room.selectingSource=null;
+        room.pendingAttackTarget=null; room.currentBattleQuestion=null;
+        room.tiebreakerQuestion=null;
         room.usedNumerical=new Set(); room.usedMultiple=new Set();
         room.players.forEach(x=>{
             x.ready=false; x.eliminated=false;
@@ -944,14 +962,57 @@ io.on('connection', socket=>{
         const idx=room.players.findIndex(p=>p.id===socket.id);
         if(idx===-1) return;
         const p=room.players[idx];
+        const pid=p.id;
+        const code=socket.roomCode;
+
+        if(room.state==='playing'){
+            // Oyuncu elenmis olarak isaretle (topraklari kalmaz)
+            p.eliminated=true;
+            room.map.forEach(r=>{ if(r.owner===pid){ r.owner=null; r.hasBase=false; r.baseHp=0; } });
+
+            // Siradaki tur bu oyuncudaysa atla
+            if(room.placingCastle===pid){
+                clearTimeout(room.castleTimer);
+                room.placingCastle=null;
+                room.castleQueueIndex++;
+                setTimeout(()=>nextCastleTurn(code), 500);
+            }
+            if(room.selectingPlayer===pid){
+                clearTimeout(room.selectionTimer);
+                room.selectingPlayer=null;
+                room.selectionIndex++;
+                setTimeout(()=>startSelection(code), 500);
+            }
+            if(room.attackingPlayer===pid){
+                clearTimeout(room.attackTimer);
+                room.currentAttacks[pid]={target:null,source:null};
+                room.attackingPlayer=null;
+                room.attackQueueIndex++;
+                setTimeout(()=>nextAttackTurn(code), 500);
+            }
+            if(room.selectingSource===pid){
+                clearTimeout(room.attackTimer);
+                room.currentAttacks[pid]={target:null,source:null};
+                room.selectingSource=null;
+                room.attackingPlayer=null;
+                room.attackQueueIndex++;
+                setTimeout(()=>nextAttackTurn(code), 500);
+            }
+        }
+
         room.players.splice(idx,1);
-        if(room.state==='playing')
-            room.map.forEach(r=>{ if(r.owner===socket.id){ r.owner=null; r.hasBase=false; } });
         if(p.isHost && room.players.length>0) room.players[0].isHost=true;
-        if(!room.players.length){ rooms.delete(socket.roomCode); return; }
-        io.to(socket.roomCode).emit('playerList',{players:safeList(room)});
-        io.to(socket.roomCode).emit('toast',{msg:`${p.name} ayrıldı`,type:'warn'});
-        if(room.state==='playing' && alive(room).length<=1) endGame(socket.roomCode);
+        if(!room.players.length){
+            // Tum timer'lari temizle
+            clearTimeout(room.questionTimer); clearTimeout(room.selectionTimer);
+            clearTimeout(room.attackTimer); clearTimeout(room.battleQuestionTimer);
+            clearTimeout(room.tiebreakerTimer); clearTimeout(room.castleTimer);
+            rooms.delete(code); return;
+        }
+        io.to(code).emit('playerList',{players:safeList(room)});
+        io.to(code).emit('toast',{msg:`${p.name} ayrıldı`,type:'warn'});
+        if(room.state==='playing') io.to(code).emit('mapUpdate',{map:room.map, players:safeList(room)});
+        if(room.state==='playing' && alive(room).length<=1) endGame(code);
     });
 });
 

@@ -15,12 +15,12 @@ const S = {
 
 /* ══════════ PARTICLES ══════════ */
 const Particles = {
-    cvs:null, ctx:null, pts:[],
+    cvs:null, ctx:null, pts:[], running:false,
     init(){
         this.cvs=document.getElementById('particleCanvas');
         this.ctx=this.cvs.getContext('2d');
         this.resize(); window.addEventListener('resize',()=>this.resize());
-        this.spawn(); this.loop();
+        this.spawn(); this.start();
     },
     resize(){ this.cvs.width=innerWidth; this.cvs.height=innerHeight; },
     spawn(){
@@ -32,7 +32,10 @@ const Particles = {
             o:Math.random()*.25+.03, p:Math.random()*Math.PI*2
         });
     },
+    start(){ if(!this.running){this.running=true;this.loop();} },
+    stop(){ this.running=false; if(this.ctx)this.ctx.clearRect(0,0,this.cvs.width,this.cvs.height); },
     loop(){
+        if(!this.running) return;
         const c=this.ctx, w=this.cvs.width, h=this.cvs.height;
         c.clearRect(0,0,w,h);
         for(const p of this.pts){
@@ -420,6 +423,8 @@ function drawDartBoard(){
 
 function showDart(rankings, correct, unit){
     UI.hideAll();
+    // Onceki dart style tag'lerini temizle
+    document.querySelectorAll('style[data-dart]').forEach(s=>s.remove());
     document.getElementById('dartCorrect').textContent=`Doğru cevap: ${correct} ${unit}`;
     const arrows=document.getElementById('dartArrows'); arrows.innerHTML='';
     const ranks=document.getElementById('dartRankings'); ranks.innerHTML='';
@@ -457,6 +462,7 @@ function showDart(rankings, correct, unit){
         flights.style.setProperty('--fc', r.color);
         flights.style.cssText+=`;`;
         const flStyle=document.createElement('style');
+        flStyle.setAttribute('data-dart','1');
         flStyle.textContent=`.dart-arrow:nth-child(${i+1}) .dart-flights::before,.dart-arrow:nth-child(${i+1}) .dart-flights::after{background:${r.color}}`;
         document.head.appendChild(flStyle);
         arrow.appendChild(flights);
@@ -716,6 +722,8 @@ socket.on('gameStarted',d=>{
     S.fullMap=d.map; S.players=d.players; S.phase='setup';
     S.expRounds=d.totalExpansionRounds; S.batRounds=d.totalBattleRounds;
     S.curExp=0; S.curBat=0;
+    S.selectingSource=false; S.placingCastle=false; S.battle=null;
+    Particles.stop();
     UI.goTo('gameScreen');
 
     // İlk render: tamamen boş harita
@@ -824,6 +832,7 @@ socket.on('autoDistributed',d=>{
 
 socket.on('phaseChange',d=>{
     if(S.phase===null) return;
+    stopTimer(); S.selectingSource=false; S.placingCastle=false;
     if(d.phase==='battle'){
         S.phase='battle'; S.curBat=0;
         document.getElementById('pcIcon').textContent='VS';
@@ -837,26 +846,32 @@ socket.on('phaseChange',d=>{
 
 socket.on('battlePhase',d=>{
     if(S.phase===null) return;
+    stopTimer(); UI.hideAll(); Map.clear();
     S.phase='battle'; S.map=d.map; S.players=d.players; S.curBat=d.round;
+    S.selectingSource=false; S.placingCastle=false;
     document.getElementById('phaseBadge').textContent='Savaş';
     document.getElementById('phaseBadge').classList.add('battle');
     document.getElementById('roundInfo').textContent=`Savaş ${d.round}/${d.totalRounds}`;
-    renderTracker(); Map.render(S.map); renderBar(); updatePU(); UI.hideAll();
+    renderTracker(); Map.render(S.map); renderBar(); updatePU();
 });
 
 socket.on('battleRoundStart',d=>{
     if(S.phase===null) return;
+    stopTimer(); UI.hideAll(); Map.clear();
     S.phase='battle'; S.map=d.map; S.players=d.players; S.curBat=d.round;
+    S.selectingSource=false; S.placingCastle=false; S.battle=null;
     document.getElementById('phaseBadge').textContent='Savaş';
     document.getElementById('phaseBadge').classList.add('battle');
     document.getElementById('roundInfo').textContent=`Savaş ${d.round}/${d.totalRounds}`;
-    renderTracker(); Map.render(S.map); renderBar(); updatePU(); UI.hideAll();
+    renderTracker(); Map.render(S.map); renderBar(); updatePU();
 });
 
 socket.on('attackTurn',d=>{
     if(S.phase===null) return;
+    stopTimer(); UI.hideAll(); Map.clear();
     S.map=d.map; S.players=d.players; S.curBat=d.round;
-    Map.render(S.map); renderBar(); UI.hideAll();
+    S.placingCastle=false; S.selectingSource=false;
+    Map.render(S.map); renderBar();
     document.getElementById('roundInfo').textContent=`Savaş ${d.round}/${d.totalRounds}`;
 
     const turnInfo=document.getElementById('attackTurnInfo');
@@ -864,7 +879,6 @@ socket.on('attackTurn',d=>{
     const timerRing=document.getElementById('attackTimerRing');
 
     if(d.playerId===S.myId){
-        // Benim sıram
         const my=d.attackOptions||[];
         if(my.length>0){
             Map.hiAtk(my);
@@ -881,8 +895,6 @@ socket.on('attackTurn',d=>{
             socket.emit('selectAttack',{regionId:null});
         }
     } else {
-        // Baskasinin sirasi — ekranin ustunde banner goster
-        Map.clear();
         document.getElementById('attackText').textContent=`${d.playerName} saldiri seciyor...`;
         turnInfo.textContent=`Sira: ${d.playerName} (${d.turnIndex+1}/${d.totalTurns})`;
         turnInfo.style.color=d.playerColor||'#fff';
@@ -918,13 +930,14 @@ socket.on('attackSourceTurn',d=>{
 
 socket.on('attackSelected',d=>{
     if(S.phase===null) return;
-    UI.hideAll(); Map.clear();
-    S.selectingSource=false;
+    stopTimer(); UI.hideAll(); Map.clear();
+    S.selectingSource=false; S.placingCastle=false;
 });
 
 socket.on('battleIntro',d=>{
     if(S.phase===null) return;
-    UI.hideAll(); Map.clear();
+    stopTimer(); UI.hideAll(); Map.clear();
+    S.selectingSource=false; S.placingCastle=false;
     const att=S.players.find(p=>p.id===d.battle.attackerId);
     const def=S.players.find(p=>p.id===d.battle.defenderId);
 
@@ -954,6 +967,7 @@ socket.on('battleIntro',d=>{
 
 socket.on('battleQuestion',d=>{
     if(S.phase===null) return;
+    stopTimer();
     S.answered=false; S.battle=d.battle;
     const isP=d.battle.attackerId===S.myId||d.battle.defenderId===S.myId;
 
@@ -1125,7 +1139,8 @@ socket.on('tiebreakerResult',d=>{
 
 socket.on('battleResult',d=>{
     if(S.phase===null) return;
-    UI.hideAll(); stopTimer(); S.battle=null;
+    stopTimer(); UI.hideAll(); Map.clear();
+    S.battle=null; S.selectingSource=false; S.placingCastle=false;
     S.map=d.map; S.players=d.players; Map.render(S.map); renderBar();
     const w=S.players.find(p=>p.id===d.winner);
     const icon=d.winner===d.battle.attackerId?'S':(d.winner===d.battle.defenderId?'D':'=');
@@ -1149,16 +1164,18 @@ socket.on('battleResult',d=>{
 
 socket.on('mapShrink',d=>{
     if(S.phase===null) return;
-    UI.hideAll(); S.map=d.map; S.players=d.players;
+    stopTimer(); UI.hideAll(); Map.clear();
+    S.map=d.map; S.players=d.players;
     Map.render(S.map); renderBar();
     UI.show('shrinkOverlay'); SFX.play('shrink');
     setTimeout(()=>UI.hide('shrinkOverlay'),3000);
 });
 
 socket.on('gameOver',d=>{
-    // Lobiye dönülmüşse gameOver olayını yoksay
     if(S.phase===null) return;
-    UI.hideAll(); stopTimer(); S.players=d.players; S.map=d.map; S.phase='gameover'; renderTracker();
+    stopTimer(); UI.hideAll(); Map.clear();
+    S.battle=null; S.selectingSource=false; S.placingCastle=false;
+    S.players=d.players; S.map=d.map; S.phase='gameover'; renderTracker();
     document.getElementById('goTitle').textContent=`${d.winner.name} Kazandı!`;
     document.getElementById('goTitle').style.color=d.winner.color;
     document.getElementById('goSub').textContent=`${d.winner.territories} bölge | ${d.winner.score} puan`;
@@ -1173,10 +1190,10 @@ socket.on('gameOver',d=>{
 });
 
 socket.on('backToLobby',d=>{
+    stopTimer(); UI.hideAll(); Map.clear();
     S.players=d.players;S.phase=null;S.map=[];S.curExp=0;S.curBat=0;S.battle=null;
-    stopTimer();
-    UI.hideAll();
-    // gameOverScreen bir .screen olduğu için hideAll onu kapatmaz, tüm ekranları kapat
+    S.selectingSource=false;S.placingCastle=false;S.answered=false;S.selectable=[];S.attackable=[];
+    Particles.start();
     document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
     UI.goTo('lobbyScreen');
     renderLobbyPlayers();
@@ -1205,6 +1222,11 @@ socket.on('revealResult',d=>{
         UI.toast('Dogru cevap secildi!','ok');
     }
     SFX.play('ok');
+});
+socket.on('mapUpdate',d=>{
+    if(S.phase===null) return;
+    S.map=d.map; S.players=d.players;
+    Map.render(S.map); renderBar(); updatePU();
 });
 socket.on('toast',d=>UI.toast(d.msg,d.type));
 socket.on('error',d=>UI.toast(d.msg,'err'));
