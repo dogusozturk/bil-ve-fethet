@@ -10,7 +10,7 @@ const S = {
     selectable:[], attackable:[], timerInterval:null, answered:false,
     myPowerUps:{fiftyFifty:1,extraTime:1,spy:1},
     expRounds:4, batRounds:6, curExp:0, curBat:0, battle:null,
-    allColors:[], myColor:null
+    allColors:[], myColor:null, placingCastle:false
 };
 
 /* ══════════ PARTICLES ══════════ */
@@ -332,6 +332,12 @@ const Map = {
     },
 
     onClick(rid){
+        if(S.placingCastle && S.selectable.includes(rid)){
+            socket.emit('placeCastle',{regionId:rid});
+            this.clear(); UI.hide('selectOverlay'); stopTimer(); SFX.play('castle');
+            S.placingCastle=false;
+            return;
+        }
         if(S.selectable.includes(rid)){
             socket.emit('selectTerritory',{regionId:rid});
             this.clear(); UI.hide('selectOverlay'); stopTimer(); SFX.play('ok');
@@ -704,21 +710,49 @@ socket.on('gameStarted',d=>{
     S.curExp=0; S.curBat=0;
     UI.goTo('gameScreen');
 
-    // İlk render: tamamen boş harita (kale yok, owner yok)
+    // İlk render: tamamen boş harita
     const clean=d.map.map(r=>({...r,hasBase:false,owner:null,baseHp:0}));
     S.map=clean; Map.render(S.map); renderBar(); updatePU(); renderTracker();
     document.getElementById('phaseBadge').textContent='Hazırlık';
-    document.getElementById('roundInfo').textContent='Kaleler kuruluyor...';
-
-    // Kısa gecikme sonra animasyonla tek tek kaleleri yerleştir
-    setTimeout(()=>{
-        Map.animCastle(d.castleAssignments, d.map, ()=>{
-            // Animasyon bitti, artık full map'i uygula
-            S.map=d.map; Map.render(S.map);
-            renderBar(); UI.toast('Genişleme başlıyor!','ok');
-        });
-    },400);
+    document.getElementById('roundInfo').textContent='Kale yerleştirme...';
     SFX.play('win');
+});
+
+socket.on('castleTurn',d=>{
+    if(S.phase===null) return;
+    UI.hideAll(); Map.clear();
+    document.getElementById('roundInfo').textContent=`Kale ${d.turnIndex+1}/${d.totalTurns}`;
+
+    if(d.playerId===S.myId){
+        S.placingCastle=true;
+        Map.hiSel(d.availableRegions);
+        document.getElementById('selectText').textContent='Kaleni kur!';
+        document.getElementById('selectPicks').textContent='';
+        UI.show('selectOverlay');
+        startTimer(d.timeLimit, document.getElementById('selectTimer'), document.getElementById('selectTimerCircle'));
+        UI.toast('Kale icin bir bolge sec!','ok');
+    } else {
+        S.placingCastle=false;
+        document.getElementById('selectText').textContent=`${d.playerName} kale kuruyor...`;
+        document.getElementById('selectPicks').textContent='';
+        UI.show('selectOverlay');
+    }
+});
+
+socket.on('castlePlaced',d=>{
+    if(S.phase===null) return;
+    S.map=d.map; S.players=d.players;
+    Map.render(S.map); Map.clear(); Map.flash(d.regionId); renderBar();
+    UI.toast(`${d.playerName} kalesini kurdu: ${d.regionName}`,'info');
+    SFX.play('castle');
+});
+
+socket.on('allCastlesPlaced',d=>{
+    if(S.phase===null) return;
+    UI.hideAll(); Map.clear();
+    S.map=d.map; S.players=d.players;
+    Map.render(S.map); renderBar();
+    UI.toast('Tum kaleler kuruldu! Genisleme basliyor!','ok');
 });
 
 socket.on('expansionQuestion',d=>{
