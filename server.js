@@ -85,7 +85,13 @@ function attackable(room, pid){
     const s = new Set();
     for(const r of my) for(const nid of r.neighbors){
         const nr = room.map.find(x=>x.id===nid);
-        if(nr && !nr.burned && nr.owner && nr.owner!==pid) s.add(nid);
+        if(!nr || nr.burned || !nr.owner || nr.owner===pid) continue;
+        // Kaleye saldirabilmek icin o oyuncunun kalesiz bolgesi kalmamis olmali
+        if(nr.hasBase){
+            const enemyNonCastle=room.map.filter(x=>x.owner===nr.owner && !x.burned && !x.hasBase);
+            if(enemyNonCastle.length>0) continue; // Hala kalesiz bolgesi var, kaleye saldiramaz
+        }
+        s.add(nid);
     }
     return [...s];
 }
@@ -99,19 +105,6 @@ function selectable(room, pid){
         if(nr && !nr.burned && !nr.owner) s.add(nid);
     }
     return s.size ? [...s] : emptyRegions(room).map(r=>r.id);
-}
-
-function autoDistribute(room){
-    const empty=emptyRegions(room);
-    if(!empty.length) return;
-    const ap=alive(room);
-    if(!ap.length) return;
-    // Sırayla oyunculara dağıt — en az bölgesi olan önce
-    const shuffled=[...empty].sort(()=>Math.random()-.5);
-    for(const r of shuffled){
-        ap.sort((a,b)=>regionCount(room,a.id)-regionCount(room,b.id));
-        r.owner=ap[0].id;
-    }
 }
 
 function alive(room){ return room.players.filter(p=>!p.eliminated); }
@@ -313,24 +306,24 @@ function handleCastlePlace(code, pid, regionId){
 function startExpansion(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     room.expansionRound++;
-    if(room.expansionRound > C.EXPANSION_ROUNDS){
-        // Kalan boş şehirleri otomatik dağıt
-        autoDistribute(room);
-        io.to(code).emit('autoDistributed',{map:room.map, players:safeList(room)});
+
+    // Bos sehir kalmadiysa savasa gec
+    if(!emptyRegions(room).length){
         io.to(code).emit('phaseChange',{phase:'battle'});
         setTimeout(()=>startBattle(code), 2500);
         return;
     }
+
     room.phase='expansion'; room.currentAnswers={};
     const q = pickQuestion(numericalQ, room.usedNumerical);
     room.currentQuestion=q; room.questionStartTime=Date.now();
 
     io.to(code).emit('expansionQuestion',{
-        round:room.expansionRound, totalRounds:C.EXPANSION_ROUNDS,
+        round:room.expansionRound, totalRounds:'?',
         question:q.q, unit:q.unit||'', timeLimit:C.EXPANSION_TIME
     });
 
-    room.questionTimer=setTimeout(()=>resolveExpansion(code), (C.EXPANSION_TIME+1)*1000);
+    room.questionTimer=setTimeout(()=>resolveExpansion(code), (C.EXPANSION_TIME+2)*1000);
 }
 
 function resolveExpansion(code){
@@ -465,12 +458,70 @@ function nextAttackTurn(code){
 function handleAttackSelect(code, pid, regionId){
     const room=rooms.get(code); if(!room||room.attackingPlayer!==pid) return;
     clearTimeout(room.attackTimer);
-    room.currentAttacks[pid]=regionId!=null?regionId:-1;
+
+    if(!regionId || regionId===-1){
+        // Pas gecti
+        room.currentAttacks[pid]={target:null,source:null};
+        room.attackingPlayer=null;
+        room.attackQueueIndex++;
+        io.to(code).emit('attackSelected',{playerId:pid,regionId:null,turnIndex:room.attackQueueIndex,totalTurns:room.attackQueue.length});
+        setTimeout(()=>nextAttackTurn(code), 800);
+        return;
+    }
+
+    // Hedef secildi, simdi kaynak sehir sec
+    room.pendingAttackTarget=regionId;
+    const tr=room.map.find(r=>r.id===regionId);
+    // Hedefin komsulari arasinda saldiran oyuncunun bolgelerini bul
+    const mySources=room.map.filter(r=>r.owner===pid && !r.burned && tr && tr.neighbors.includes(r.id)).map(r=>r.id);
+
+    if(mySources.length===0){
+        // Komsu bolge yok (olmamali ama guvenlik)
+        room.currentAttacks[pid]={target:null,source:null};
+        room.attackingPlayer=null;
+        room.attackQueueIndex++;
+        setTimeout(()=>nextAttackTurn(code), 800);
+        return;
+    }
+    if(mySources.length===1){
+        // Tek kaynak, otomatik sec
+        finishAttackSelect(code, pid, regionId, mySources[0]);
+        return;
+    }
+
+    // Birden fazla kaynak, oyuncuya sor
+    const p=room.players.find(x=>x.id===pid);
+    room.selectingSource=pid;
+    io.to(code).emit('attackSourceTurn',{
+        playerId:pid, playerName:p?p.name:'', playerColor:p?p.color:'',
+        targetRegionId:regionId, targetRegionName:tr?tr.name:'',
+        sourceOptions:mySources, timeLimit:10
+    });
+
+    room.attackTimer=setTimeout(()=>{
+        if(room.selectingSource===pid){
+            finishAttackSelect(code, pid, regionId, mySources[0]);
+        }
+    }, 11000);
+}
+
+function handleSourceSelect(code, pid, sourceId){
+    const room=rooms.get(code); if(!room||room.selectingSource!==pid) return;
+    clearTimeout(room.attackTimer);
+    const targetId=room.pendingAttackTarget;
+    finishAttackSelect(code, pid, targetId, sourceId);
+}
+
+function finishAttackSelect(code, pid, targetId, sourceId){
+    const room=rooms.get(code); if(!room) return;
+    room.currentAttacks[pid]={target:targetId, source:sourceId};
     room.attackingPlayer=null;
+    room.selectingSource=null;
+    room.pendingAttackTarget=null;
     room.attackQueueIndex++;
 
     io.to(code).emit('attackSelected',{
-        playerId:pid, regionId,
+        playerId:pid, regionId:targetId, sourceId,
         turnIndex:room.attackQueueIndex, totalTurns:room.attackQueue.length
     });
 
@@ -481,18 +532,20 @@ function resolveAttacks(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     clearTimeout(room.attackTimer);
     const battles=[];
-    for(const [aid,trid] of Object.entries(room.currentAttacks)){
-        if(trid===-1||trid===null) continue;
-        const tr=room.map.find(r=>r.id===trid);
+    for(const [aid,atk] of Object.entries(room.currentAttacks)){
+        if(!atk||!atk.target) continue;
+        const tr=room.map.find(r=>r.id===atk.target);
         if(!tr||!tr.owner) continue;
         const att=room.players.find(p=>p.id===aid);
         const def=room.players.find(p=>p.id===tr.owner);
         if(!att||!def||att.eliminated||def.eliminated) continue;
         battles.push({
-            attackerId:aid, defenderId:tr.owner, targetRegionId:trid,
+            attackerId:aid, defenderId:tr.owner,
+            targetRegionId:atk.target, sourceRegionId:atk.source,
             attackerName:att.name, defenderName:def.name,
             attackerColor:att.color, defenderColor:def.color,
-            targetRegionName:tr.name
+            targetRegionName:tr.name,
+            sourceRegionName:room.map.find(r=>r.id===atk.source)?.name||''
         });
     }
     if(!battles.length){ setTimeout(()=>startBattle(code),1500); return; }
@@ -635,6 +688,26 @@ function applyBattle(code, winner, reason){
     } else if(winner===b.defenderId){
         const dP=room.players.find(p=>p.id===b.defenderId);
         if(dP) dP.defenseScore+=C.SCORE_DEFENSE;
+        // Saldiran kaybetti - kaynak sehrini kaybeder
+        const src=room.map.find(r=>r.id===b.sourceRegionId);
+        if(src && src.owner===b.attackerId){
+            if(src.hasBase){
+                src.baseHp--;
+                if(src.baseHp<=0){
+                    src.hasBase=false; src.owner=b.defenderId;
+                    const aBases=room.map.filter(r=>r.owner===b.attackerId && r.hasBase && !r.burned);
+                    if(!aBases.length){
+                        room.map.forEach(r=>{ if(r.owner===b.attackerId) r.owner=b.defenderId; });
+                        const aP=room.players.find(p=>p.id===b.attackerId);
+                        if(aP){ aP.eliminated=true; eliminated=b.attackerId; }
+                    }
+                }
+            } else {
+                src.owner=b.defenderId;
+            }
+        }
+    } else {
+        // both_wrong - ikisi de bilemedi, tur gecer (toprak degismez)
     }
 
     io.to(code).emit('battleResult',{
@@ -798,6 +871,12 @@ io.on('connection', socket=>{
         const room=rooms.get(socket.roomCode);
         if(!room||room.phase!=='battle') return;
         handleAttackSelect(socket.roomCode, socket.id, regionId);
+    });
+
+    socket.on('selectAttackSource', ({sourceId})=>{
+        const room=rooms.get(socket.roomCode);
+        if(!room||room.phase!=='battle') return;
+        handleSourceSelect(socket.roomCode, socket.id, sourceId);
     });
 
     socket.on('submitBattleAnswer', ({answer})=>{

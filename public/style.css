@@ -298,6 +298,11 @@ input{font-family:var(--f3)}
 .battle-vs-area{display:flex;flex-direction:column;align-items:center;gap:2px}
 .battle-vs{font-family:var(--f1);font-size:1.8rem;font-weight:900;color:var(--red);text-shadow:0 0 12px rgba(239,68,68,.4)}
 .battle-target{font-size:.65rem;color:var(--text3);font-weight:600}
+.battle-header.intro-mode{margin-bottom:0;padding:20px 0;gap:24px}
+.battle-header.intro-mode .battle-avatar{width:64px;height:64px;font-size:1.6rem;border-width:4px}
+.battle-header.intro-mode .battle-name{font-size:1rem}
+.battle-header.intro-mode .battle-vs{font-size:2.4rem}
+.battle-header.intro-mode .battle-target{font-size:.75rem}
 
 /* Tiebreaker */
 .tiebreaker-box{background:linear-gradient(135deg,var(--bg2),var(--bg3));border:2px solid var(--orange);border-radius:var(--rL);padding:24px;max-width:460px;width:90%;text-align:center;animation:modalIn .3s var(--ease)}

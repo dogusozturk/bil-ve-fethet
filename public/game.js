@@ -10,7 +10,7 @@ const S = {
     selectable:[], attackable:[], timerInterval:null, answered:false,
     myPowerUps:{fiftyFifty:1,extraTime:1,reveal:1},
     expRounds:4, batRounds:6, curExp:0, curBat:0, battle:null,
-    allColors:[], myColor:null, placingCastle:false
+    allColors:[], myColor:null, placingCastle:false, selectingSource:false
 };
 
 /* ══════════ PARTICLES ══════════ */
@@ -338,6 +338,12 @@ const Map = {
             socket.emit('placeCastle',{regionId:rid});
             this.clear(); UI.hide('selectOverlay'); stopTimer(); SFX.play('castle');
             S.placingCastle=false;
+            return;
+        }
+        if(S.selectingSource && S.selectable.includes(rid)){
+            socket.emit('selectAttackSource',{sourceId:rid});
+            this.clear(); UI.hide('selectOverlay'); stopTimer(); SFX.play('battle');
+            S.selectingSource=false;
             return;
         }
         if(S.selectable.includes(rid)){
@@ -785,25 +791,27 @@ socket.on('expansionResults',d=>{if(S.phase===null)return;stopTimer();showDart(d
 
 socket.on('selectTerritoryTurn',d=>{
     if(S.phase===null) return;
-    UI.hideAll();
+    stopTimer(); UI.hideAll();
     if(d.playerId===S.myId){
         Map.hiSel(d.selectableRegions);
-        document.getElementById('selectText').textContent='Toprak seç!';
-        document.getElementById('selectPicks').textContent=`(${d.picksLeft} seçim hakkı)`;
+        document.getElementById('selectText').textContent='Toprak sec!';
+        document.getElementById('selectPicks').textContent=`(${d.picksLeft} secim hakki)`;
         UI.show('selectOverlay');
-        startTimer(10, document.getElementById('selectTimer'), document.getElementById('selectTimerCircle'));
-        UI.toast('Senin sıran!','ok');
+        startTimer(d.timeLimit||10, document.getElementById('selectTimer'), document.getElementById('selectTimerCircle'));
+        UI.toast('Senin siran!','ok');
     } else {
-        document.getElementById('selectText').textContent=`${d.playerName} seçiyor...`;
+        document.getElementById('selectText').textContent=`${d.playerName} seciyor...`;
         document.getElementById('selectPicks').textContent='';
         UI.show('selectOverlay');
+        startTimer(d.timeLimit||10, document.getElementById('selectTimer'), document.getElementById('selectTimerCircle'));
         Map.hiSel(d.selectableRegions);
     }
 });
 
 socket.on('territorySelected',d=>{
+    stopTimer(); UI.hideAll();
     S.map=d.map; S.players=d.players;
-    Map.render(S.map); Map.clear(); Map.flash(d.regionId); renderBar();
+    Map.render(S.map); Map.flash(d.regionId); renderBar();
     const p=S.players.find(x=>x.id===d.playerId);
     if(p) UI.toast(`${p.name} → ${d.regionName}`,'info');
 });
@@ -884,9 +892,34 @@ socket.on('attackTurn',d=>{
     }
 });
 
+socket.on('attackSourceTurn',d=>{
+    if(S.phase===null) return;
+    stopTimer(); UI.hideAll(); Map.clear();
+    if(d.playerId===S.myId){
+        S.selectingSource=true;
+        S.pendingAttackTarget=d.targetRegionId;
+        Map.hiSel(d.sourceOptions);
+        document.getElementById('selectText').textContent=`Hangi sehirden saldiracaksin? (Hedef: ${d.targetRegionName})`;
+        document.getElementById('selectPicks').textContent='Kaybedersen bu sehri kaybedersin!';
+        UI.show('selectOverlay');
+        startTimer(d.timeLimit||10, document.getElementById('selectTimer'), document.getElementById('selectTimerCircle'), ()=>{
+            if(S.selectingSource){
+                socket.emit('selectAttackSource',{sourceId:d.sourceOptions[0]});
+                S.selectingSource=false; Map.clear(); UI.hide('selectOverlay');
+            }
+        });
+    } else {
+        document.getElementById('selectText').textContent=`${d.playerName} kaynak sehir seciyor...`;
+        document.getElementById('selectPicks').textContent=`Hedef: ${d.targetRegionName}`;
+        UI.show('selectOverlay');
+        startTimer(d.timeLimit||10, document.getElementById('selectTimer'), document.getElementById('selectTimerCircle'));
+    }
+});
+
 socket.on('attackSelected',d=>{
     if(S.phase===null) return;
     UI.hideAll(); Map.clear();
+    S.selectingSource=false;
 });
 
 socket.on('battleIntro',d=>{
@@ -901,17 +934,19 @@ socket.on('battleIntro',d=>{
     document.getElementById('bDefAvatar').textContent=def?def.name.charAt(0):'D';
     document.getElementById('bDefAvatar').style.background=def?def.color:'#3498db';
     document.getElementById('bDefName').textContent=d.battle.defenderName;
-    document.getElementById('bTarget').textContent=d.battle.targetRegionName||'';
+    const targetTxt=d.battle.targetRegionName||'';
+    const sourceTxt=d.battle.sourceRegionName?` (${d.battle.sourceRegionName}'den)`:'';
+    document.getElementById('bTarget').textContent=targetTxt+sourceTxt;
     document.getElementById('battleQText').textContent='';
-    document.querySelectorAll('#battleOptions .q-option').forEach(b=>{
-        b.innerHTML=''; b.textContent=''; b.className='q-option'; b.style.visibility='hidden';
-        b.style.borderColor=''; b.style.background=''; b.style.boxShadow='';
-    });
+    document.getElementById('battleQText').style.display='none';
+    document.getElementById('battleOptions').style.display='none';
     // Timer ve power-up'lari gizle
     const bTimer=document.querySelector('#battleOverlay .q-timer-ring');
-    if(bTimer) bTimer.style.visibility='hidden';
+    if(bTimer) bTimer.style.display='none';
     const bPU=document.querySelector('#battleOverlay .q-powerups');
     if(bPU) bPU.style.display='none';
+    // VS header buyut
+    document.querySelector('.battle-header').classList.add('intro-mode');
 
     UI.show('battleOverlay');
     SFX.play('battle');
@@ -923,6 +958,9 @@ socket.on('battleQuestion',d=>{
     const isP=d.battle.attackerId===S.myId||d.battle.defenderId===S.myId;
 
     document.getElementById('battleQText').textContent=d.question;
+    document.getElementById('battleQText').style.display='';
+    document.getElementById('battleOptions').style.display='';
+    document.querySelector('.battle-header').classList.remove('intro-mode');
 
     document.querySelectorAll('#battleOptions .q-option').forEach((b,i)=>{
         b.innerHTML=''; b.textContent=d.options[i]; b.className='q-option'; b.dataset.idx=i;
@@ -932,7 +970,7 @@ socket.on('battleQuestion',d=>{
 
     // Timer ve power-up'lari goster
     const bTimer=document.querySelector('#battleOverlay .q-timer-ring');
-    if(bTimer) bTimer.style.visibility='';
+    if(bTimer) bTimer.style.display='';
     const bPU=document.querySelector('#battleOverlay .q-powerups');
     if(bPU) bPU.style.display=isP?'':'none';
 
