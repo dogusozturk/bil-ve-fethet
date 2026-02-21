@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+    <title>Bil ve Fethet</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600;700;900&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <canvas id="particleCanvas"></canvas>
+    <div id="vignetteOverlay"></div>
+
+    <!-- ═══════ ANA MENÜ ═══════ -->
+    <div id="menuScreen" class="screen active">
+        <div class="menu-scene">
+            <div class="emblem">
+                <div class="emblem-shield">
+                    <div class="emblem-glow"></div>
+                    <svg class="emblem-svg" viewBox="0 0 100 110"><path d="M50 5 L90 20 L90 60 Q90 90 50 105 Q10 90 10 60 L10 20 Z" fill="url(#shieldGrad)" stroke="#ffd700" stroke-width="2"/><defs><linearGradient id="shieldGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2a1a60"/><stop offset="100%" stop-color="#150e2a"/></linearGradient></defs><text x="50" y="62" text-anchor="middle" font-size="36">&#9876;</text></svg>
+                </div>
+                <div class="emblem-ring"></div>
+            </div>
+            <h1 class="main-title">
+                <span class="title-line1">Bil ve</span>
+                <span class="title-line2">Fethet</span>
+            </h1>
+            <p class="tagline">Bilgi Gücündür &bull; Topraklar Senindir</p>
+            <div class="menu-form">
+                <input type="text" id="playerNameInput" placeholder="Savaşçı adını gir..." maxlength="15" autocomplete="off" spellcheck="false">
+                <div class="menu-actions">
+                    <button class="menu-btn primary" id="btnCreateRoom"><div class="btn-shine"></div><span>&#9876; Oda Oluştur</span></button>
+                    <div class="join-row">
+                        <input type="text" id="roomCodeInput" placeholder="Oda Kodu" maxlength="6" autocomplete="off" spellcheck="false">
+                        <button class="menu-btn" id="btnJoinRoom"><span>Katıl</span></button>
+                    </div>
+                </div>
+            </div>
+            <div class="menu-footer">2-16 Oyuncu &bull; Online Multiplayer &bull; Türkiye Haritası</div>
+        </div>
+    </div>
+
+    <!-- ═══════ LOBİ ═══════ -->
+    <div id="lobbyScreen" class="screen">
+        <div class="lobby-container">
+            <div class="lobby-header">
+                <h2>&#9876; Savaş Odası</h2>
+                <div class="room-code-display">
+                    <span class="code-label">Oda Kodu:</span>
+                    <span class="code-value" id="lobbyRoomCode">------</span>
+                    <button class="copy-btn" id="btnCopyCode" title="Kopyala">&#128203;</button>
+                </div>
+                <p class="share-hint" id="shareHint">Arkadaşlarına bu kodu gönder!</p>
+            </div>
+            <div class="color-picker-section" id="colorPickerSection">
+                <span class="color-label">Rengini seç:</span>
+                <div class="color-grid" id="colorGrid"></div>
+            </div>
+            <div class="player-grid" id="playerGrid"></div>
+            <div class="lobby-actions">
+                <button class="launch-btn disabled" id="btnStartGame"><div class="btn-shine"></div><span>&#9876; Savaş Başlasın!</span></button>
+                <button class="ready-btn" id="btnReady">Hazırım!</button>
+                <button class="leave-btn" id="btnLeave">Ayrıl</button>
+            </div>
+            <div class="lobby-info" id="lobbyStatus">Oyuncular bekleniyor...</div>
+        </div>
+    </div>
+
+    <!-- ═══════ OYUN EKRANI ═══════ -->
+    <div id="gameScreen" class="screen">
+        <div class="game-hud">
+            <div class="hud-left">
+                <div class="phase-badge" id="phaseBadge">Hazırlık</div>
+                <div class="round-info" id="roundInfo">--</div>
+            </div>
+            <div class="hud-center">
+                <div class="turn-tracker" id="turnTracker"></div>
+            </div>
+            <div class="hud-right">
+                <div class="power-ups">
+                    <button class="pu-btn" data-type="fiftyFifty" title="50/50"><span class="pu-icon">&#189;</span><span class="pu-count">1</span></button>
+                    <button class="pu-btn" data-type="extraTime" title="Ek Süre"><span class="pu-icon">&#9202;</span><span class="pu-count">1</span></button>
+                    <button class="pu-btn" data-type="spy" title="Casus"><span class="pu-icon">&#128065;</span><span class="pu-count">1</span></button>
+                </div>
+            </div>
+        </div>
+        <div class="map-area">
+            <svg id="gameMap" class="game-map"></svg>
+        </div>
+        <div class="player-bar" id="playerBar"></div>
+    </div>
+
+    <!-- ═══════ KALE OVERLAY ═══════ -->
+    <div class="overlay" id="castleOverlay">
+        <div class="castle-setup-box">
+            <div class="castle-anim-icon">&#127984;</div>
+            <h3>Kaleler Kuruluyor</h3>
+            <p id="castleText">Komutanlar topraklarını seçiyor...</p>
+            <div class="castle-progress"><div class="castle-progress-bar" id="castleProgressBar"></div></div>
+        </div>
+    </div>
+
+    <!-- ═══════ SORU (TAHMİN) ═══════ -->
+    <div class="overlay" id="questionOverlay">
+        <div class="question-box">
+            <div class="q-header">
+                <span class="q-phase" id="qPhase">Genişleme</span>
+                <div class="q-timer-ring"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="20" class="timer-bg"/><circle cx="22" cy="22" r="20" class="timer-fg" id="qTimerCircle"/></svg><span class="q-timer-num" id="qTimer">15</span></div>
+            </div>
+            <p class="q-text" id="qText"></p>
+            <div class="q-unit" id="qUnit"></div>
+            <div class="q-input-area">
+                <input type="number" id="qInput" placeholder="Tahminin..." autocomplete="off">
+                <button class="q-submit-btn" id="qSubmitBtn">&#10148;</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════ HEDEF TAHTASI ═══════ -->
+    <div class="overlay" id="dartOverlay">
+        <div class="dart-box">
+            <h3 class="dart-title">&#127919; Hedef Tahtası</h3>
+            <div class="dart-correct" id="dartCorrect"></div>
+            <div class="dart-board-wrap">
+                <canvas id="dartCanvas" width="320" height="320"></canvas>
+                <div class="dart-arrows" id="dartArrows"></div>
+            </div>
+            <div class="dart-rankings" id="dartRankings"></div>
+            <div class="dart-picks-info" id="dartPicksInfo"></div>
+        </div>
+    </div>
+
+    <!-- ═══════ TOPRAK SEÇİMİ ═══════ -->
+    <div class="overlay transparent" id="selectOverlay">
+        <div class="select-banner">
+            <span class="select-icon">&#127968;</span>
+            <span class="select-text" id="selectText">Toprak seç!</span>
+            <span class="select-picks" id="selectPicks"></span>
+            <div class="q-timer-ring small"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="20" class="timer-bg"/><circle cx="22" cy="22" r="20" class="timer-fg" id="selectTimerCircle"/></svg><span class="q-timer-num" id="selectTimer">10</span></div>
+        </div>
+    </div>
+
+    <!-- ═══════ SALDIRI SEÇİMİ ═══════ -->
+    <div class="overlay transparent" id="attackOverlay">
+        <div class="select-banner attack-banner">
+            <span class="select-icon">&#9876;</span>
+            <span class="select-text" id="attackText">Saldıracağın bölgeyi seç!</span>
+            <button class="pass-btn" id="btnPass">Pas Geç</button>
+            <div class="q-timer-ring small"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="20" class="timer-bg"/><circle cx="22" cy="22" r="20" class="timer-fg" id="attackTimerCircle"/></svg><span class="q-timer-num" id="attackTimer">15</span></div>
+        </div>
+    </div>
+
+    <!-- ═══════ SAVAŞ SORUSU ═══════ -->
+    <div class="overlay" id="battleOverlay">
+        <div class="battle-box">
+            <div class="battle-header">
+                <div class="battle-player"><div class="battle-avatar" id="bAtkAvatar">A</div><span class="battle-name" id="bAtkName">Saldıran</span><span class="battle-role atk">&#9876; Saldırı</span></div>
+                <div class="battle-vs-area"><div class="battle-vs">VS</div><div class="battle-target" id="bTarget"></div></div>
+                <div class="battle-player"><div class="battle-avatar" id="bDefAvatar">D</div><span class="battle-name" id="bDefName">Savunan</span><span class="battle-role def">&#128737; Savunma</span></div>
+            </div>
+            <p class="q-text" id="battleQText"></p>
+            <div class="q-options" id="battleOptions">
+                <button class="q-option" data-idx="0"></button>
+                <button class="q-option" data-idx="1"></button>
+                <button class="q-option" data-idx="2"></button>
+                <button class="q-option" data-idx="3"></button>
+            </div>
+            <div class="q-timer-ring"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="20" class="timer-bg"/><circle cx="22" cy="22" r="20" class="timer-fg" id="battleTimerCircle"/></svg><span class="q-timer-num" id="battleTimerNum">20</span></div>
+        </div>
+    </div>
+
+    <!-- ═══════ TIEBREAKER ═══════ -->
+    <div class="overlay" id="tiebreakerOverlay">
+        <div class="tiebreaker-box">
+            <div class="tb-icon">&#9878;</div>
+            <h3>Berabere! Ek Soru</h3>
+            <p class="tb-sub">İkisi de doğru bildi — en yakın tahmin kazanır!</p>
+            <p class="q-text" id="tbQText"></p>
+            <div class="q-unit" id="tbUnit"></div>
+            <div class="q-input-area">
+                <input type="number" id="tbInput" placeholder="Tahminin..." autocomplete="off">
+                <button class="q-submit-btn" id="tbSubmitBtn">&#10148;</button>
+            </div>
+            <div class="q-timer-ring"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="20" class="timer-bg"/><circle cx="22" cy="22" r="20" class="timer-fg" id="tbTimerCircle"/></svg><span class="q-timer-num" id="tbTimerNum">15</span></div>
+        </div>
+    </div>
+
+    <!-- ═══════ SAVAŞ SONUÇ ═══════ -->
+    <div class="overlay" id="battleResultOverlay">
+        <div class="battle-result-box">
+            <div class="br-icon" id="brIcon">&#9876;</div>
+            <h3 class="br-title" id="brTitle">Sonuç</h3>
+            <p class="br-detail" id="brDetail"></p>
+            <div class="br-answer" id="brAnswer"></div>
+            <div class="br-territory" id="brTerritory"></div>
+        </div>
+    </div>
+
+    <!-- ═══════ HARİTA DARALMA ═══════ -->
+    <div class="overlay" id="shrinkOverlay">
+        <div class="shrink-box"><div class="shrink-icon">&#128293;</div><h3>Harita Daralıyor!</h3><p>Dış bölgeler yanıyor...</p></div>
+    </div>
+
+    <!-- ═══════ FAZ DEĞİŞİM ═══════ -->
+    <div class="overlay" id="phaseChangeOverlay">
+        <div class="phase-change-box"><div class="pc-icon" id="pcIcon">&#9876;</div><h2 class="pc-title" id="pcTitle">Savaş Aşaması</h2><p class="pc-sub" id="pcSub">Topraklarını savun, düşmanlarını fethet!</p></div>
+    </div>
+
+    <!-- ═══════ OYUN SONU ═══════ -->
+    <div id="gameOverScreen" class="screen">
+        <div class="gameover-scene">
+            <canvas id="confettiCanvas"></canvas>
+            <div class="victory-content">
+                <div class="victory-crown">&#128081;</div>
+                <h2 class="victory-title" id="goTitle">Zafer!</h2>
+                <p class="victory-sub" id="goSub"></p>
+                <div class="go-rankings" id="goRankings"></div>
+                <div class="go-actions">
+                    <button class="menu-btn primary" id="btnRematch"><div class="btn-shine"></div><span>Lobiye Dön</span></button>
+                    <button class="menu-btn" id="btnBackMenu"><span>Ana Menü</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toasts"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="turkey-map.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
