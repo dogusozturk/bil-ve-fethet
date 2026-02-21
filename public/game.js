@@ -814,7 +814,7 @@ socket.on('phaseChange',d=>{
     if(S.phase===null) return;
     if(d.phase==='battle'){
         S.phase='battle'; S.curBat=0;
-        document.getElementById('pcIcon').textContent='\u2694\uFE0F';
+        document.getElementById('pcIcon').textContent='VS';
         document.getElementById('pcTitle').textContent='Savaş Aşaması';
         document.getElementById('pcSub').textContent='Topraklarını savun, düşmanlarını fethet!';
         UI.hideAll(); UI.show('phaseChangeOverlay'); SFX.play('battle');
@@ -847,29 +847,42 @@ socket.on('attackTurn',d=>{
     Map.render(S.map); renderBar(); UI.hideAll();
     document.getElementById('roundInfo').textContent=`Savaş ${d.round}/${d.totalRounds}`;
 
+    const turnInfo=document.getElementById('attackTurnInfo');
+    const passBtn=document.getElementById('btnPass');
+    const timerRing=document.getElementById('attackTimerRing');
+
     if(d.playerId===S.myId){
         // Benim sıram
         const my=d.attackOptions||[];
         if(my.length>0){
             Map.hiAtk(my);
             document.getElementById('attackText').textContent='Saldıracağın bölgeyi seç!';
+            turnInfo.textContent=`Sira: Sende (${d.turnIndex+1}/${d.totalTurns})`;
+            turnInfo.style.color='#ffd700';
+            passBtn.style.display='';
+            timerRing.style.display='';
             UI.show('attackOverlay');
             startTimer(d.timeLimit, document.getElementById('attackTimer'), document.getElementById('attackTimerCircle'), ()=>{
                 socket.emit('selectAttack',{regionId:null}); Map.clear(); UI.hide('attackOverlay');
             });
         } else {
             socket.emit('selectAttack',{regionId:null});
-            UI.toast('Saldıracak bölge yok','info');
         }
     } else {
-        // Başkasının sırası — bekle
-        UI.toast(`⚔️ ${d.playerName} saldırı seçiyor...`,'info');
+        // Baskasinin sirasi — ekranin ustunde banner goster
+        Map.clear();
+        document.getElementById('attackText').textContent=`${d.playerName} saldiri seciyor...`;
+        turnInfo.textContent=`Sira: ${d.playerName} (${d.turnIndex+1}/${d.totalTurns})`;
+        turnInfo.style.color=d.playerColor||'#fff';
+        passBtn.style.display='none';
+        timerRing.style.display='none';
+        UI.show('attackOverlay');
     }
 });
 
 socket.on('attackSelected',d=>{
     if(S.phase===null) return;
-    // Saldırı seçildi bildirimi (opsiyonel)
+    UI.hideAll(); Map.clear();
 });
 
 socket.on('battleQuestion',d=>{
