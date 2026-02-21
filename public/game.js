@@ -105,6 +105,7 @@ const UI = {
 /* ══════════ TIMER (ring style) ══════════ */
 function startTimer(secs, numEl, circleEl, onEnd){
     clearInterval(S.timerInterval);
+    clearTimeout(S.timerEndTimeout);
     let left=secs;
     const total=secs;
     const circ=125.66; // 2*PI*20
@@ -125,13 +126,14 @@ function startTimer(secs, numEl, circleEl, onEnd){
             clearInterval(S.timerInterval);
             if(numEl){numEl.textContent='0';numEl.classList.add('warn');}
             if(circleEl){circleEl.style.strokeDashoffset=circ;circleEl.classList.add('warn');}
-            if(onEnd)onEnd();
+            // 800ms tolerans - son saniyede verilen cevaplar kabul edilsin
+            S.timerEndTimeout=setTimeout(()=>{if(onEnd)onEnd();},800);
             return;
         }
         update();
     },1000);
 }
-function stopTimer(){ clearInterval(S.timerInterval); }
+function stopTimer(){ clearInterval(S.timerInterval); clearTimeout(S.timerEndTimeout); }
 
 /* ══════════ İL ADI KISALTMA ══════════ */
 function abbr(name){
@@ -720,7 +722,7 @@ socket.on('gameStarted',d=>{
 
 socket.on('castleTurn',d=>{
     if(S.phase===null) return;
-    UI.hideAll(); Map.clear();
+    stopTimer(); UI.hideAll(); Map.clear();
     document.getElementById('roundInfo').textContent=`Kale ${d.turnIndex+1}/${d.totalTurns}`;
 
     if(d.playerId===S.myId){
@@ -736,20 +738,22 @@ socket.on('castleTurn',d=>{
         document.getElementById('selectText').textContent=`${d.playerName} kale kuruyor...`;
         document.getElementById('selectPicks').textContent='';
         UI.show('selectOverlay');
+        startTimer(d.timeLimit, document.getElementById('selectTimer'), document.getElementById('selectTimerCircle'));
     }
 });
 
 socket.on('castlePlaced',d=>{
     if(S.phase===null) return;
+    stopTimer(); UI.hideAll();
     S.map=d.map; S.players=d.players;
-    Map.render(S.map); Map.clear(); Map.flash(d.regionId); renderBar();
+    Map.render(S.map); Map.flash(d.regionId); renderBar();
     UI.toast(`${d.playerName} kalesini kurdu: ${d.regionName}`,'info');
     SFX.play('castle');
 });
 
 socket.on('allCastlesPlaced',d=>{
     if(S.phase===null) return;
-    UI.hideAll(); Map.clear();
+    stopTimer(); UI.hideAll(); Map.clear();
     S.map=d.map; S.players=d.players;
     Map.render(S.map); renderBar();
     UI.toast('Tum kaleler kuruldu! Genisleme basliyor!','ok');
@@ -885,12 +889,11 @@ socket.on('attackSelected',d=>{
     UI.hideAll(); Map.clear();
 });
 
-socket.on('battleQuestion',d=>{
+socket.on('battleIntro',d=>{
     if(S.phase===null) return;
-    UI.hideAll(); Map.clear(); S.answered=false; S.battle=d.battle;
+    UI.hideAll(); Map.clear();
     const att=S.players.find(p=>p.id===d.battle.attackerId);
     const def=S.players.find(p=>p.id===d.battle.defenderId);
-    const isP=d.battle.attackerId===S.myId||d.battle.defenderId===S.myId;
 
     document.getElementById('bAtkAvatar').textContent=att?att.name.charAt(0):'A';
     document.getElementById('bAtkAvatar').style.background=att?att.color:'#e74c3c';
@@ -899,15 +902,37 @@ socket.on('battleQuestion',d=>{
     document.getElementById('bDefAvatar').style.background=def?def.color:'#3498db';
     document.getElementById('bDefName').textContent=d.battle.defenderName;
     document.getElementById('bTarget').textContent=d.battle.targetRegionName||'';
+    document.getElementById('battleQText').textContent='';
+    document.querySelectorAll('#battleOptions .q-option').forEach(b=>{
+        b.innerHTML=''; b.textContent=''; b.className='q-option'; b.style.visibility='hidden';
+        b.style.borderColor=''; b.style.background=''; b.style.boxShadow='';
+    });
+    // Timer ve power-up'lari gizle
+    const bTimer=document.querySelector('#battleOverlay .q-timer-ring');
+    if(bTimer) bTimer.style.visibility='hidden';
+    const bPU=document.querySelector('#battleOverlay .q-powerups');
+    if(bPU) bPU.style.display='none';
+
+    UI.show('battleOverlay');
+    SFX.play('battle');
+});
+
+socket.on('battleQuestion',d=>{
+    if(S.phase===null) return;
+    S.answered=false; S.battle=d.battle;
+    const isP=d.battle.attackerId===S.myId||d.battle.defenderId===S.myId;
+
     document.getElementById('battleQText').textContent=d.question;
 
     document.querySelectorAll('#battleOptions .q-option').forEach((b,i)=>{
         b.innerHTML=''; b.textContent=d.options[i]; b.className='q-option'; b.dataset.idx=i;
-        b.style.pointerEvents=isP?'':'none';
+        b.style.pointerEvents=isP?'':'none'; b.style.visibility='';
         b.style.borderColor=''; b.style.background=''; b.style.boxShadow='';
     });
 
-    // Power-up'lari sadece savasan oyunculara goster
+    // Timer ve power-up'lari goster
+    const bTimer=document.querySelector('#battleOverlay .q-timer-ring');
+    if(bTimer) bTimer.style.visibility='';
     const bPU=document.querySelector('#battleOverlay .q-powerups');
     if(bPU) bPU.style.display=isP?'':'none';
 

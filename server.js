@@ -500,14 +500,22 @@ function nextBattle(code){
     }
     const b=room.pendingBattles[room.currentBattleIndex];
     room.battleAnswers={};
-    const q=multipleQ[Math.floor(Math.random()*multipleQ.length)];
-    room.currentBattleQuestion=q; room.battleQuestionStart=Date.now();
 
-    io.to(code).emit('battleQuestion',{
-        battle:b, question:q.q, options:[...q.o], timeLimit:C.BATTLE_TIME
-    });
+    // Once kimlerin savastigini goster
+    io.to(code).emit('battleIntro',{battle:b});
 
-    room.battleQuestionTimer=setTimeout(()=>resolveBattle(code), (C.BATTLE_TIME+1)*1000);
+    // 2.5 saniye sonra soruyu gonder
+    setTimeout(()=>{
+        if(!room||room.state!=='playing') return;
+        const q=multipleQ[Math.floor(Math.random()*multipleQ.length)];
+        room.currentBattleQuestion=q; room.battleQuestionStart=Date.now();
+
+        io.to(code).emit('battleQuestion',{
+            battle:b, question:q.q, options:[...q.o], timeLimit:C.BATTLE_TIME
+        });
+
+        room.battleQuestionTimer=setTimeout(()=>resolveBattle(code), (C.BATTLE_TIME+2)*1000);
+    }, 2500);
 }
 
 function resolveBattle(code){
@@ -603,6 +611,9 @@ function applyBattle(code, winner, reason){
             tr.baseHp--;
             if(tr.baseHp<=0){
                 tr.hasBase=false; tr.owner=winner;
+                // Saldıranın kalesine +1 HP ekle
+                const atkBase=room.map.find(r=>r.owner===b.attackerId && r.hasBase && !r.burned);
+                if(atkBase) atkBase.baseHp++;
                 const dBases=room.map.filter(r=>r.owner===b.defenderId && r.hasBase && !r.burned);
                 if(!dBases.length){
                     room.map.forEach(r=>{ if(r.owner===b.defenderId) r.owner=winner; });
@@ -780,7 +791,7 @@ io.on('connection', socket=>{
     });
 
     socket.on('submitBattleAnswer', ({answer})=>{
-        const room=rooms.get(socket.roomCode); if(!room) return;
+        const room=rooms.get(socket.roomCode); if(!room||!room.currentBattleQuestion) return;
         room.battleAnswers[socket.id]={answer, time:Date.now()-room.battleQuestionStart};
         checkBattle(room);
     });
