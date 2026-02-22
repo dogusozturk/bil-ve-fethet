@@ -939,14 +939,16 @@ socket.on('battleIntro',d=>{
     stopTimer(); UI.hideAll(); Map.clear();
     S.selectingSource=false; S.placingCastle=false;
     const att=S.players.find(p=>p.id===d.battle.attackerId);
-    const def=S.players.find(p=>p.id===d.battle.defenderId);
+    const def=d.battle.defenderId?S.players.find(p=>p.id===d.battle.defenderId):null;
+    const isSolo=d.battle.isSolo||!d.battle.defenderId;
 
     document.getElementById('bAtkAvatar').textContent=att?att.name.charAt(0):'A';
     document.getElementById('bAtkAvatar').style.background=att?att.color:'#e74c3c';
     document.getElementById('bAtkName').textContent=d.battle.attackerName;
-    document.getElementById('bDefAvatar').textContent=def?def.name.charAt(0):'D';
-    document.getElementById('bDefAvatar').style.background=def?def.color:'#3498db';
-    document.getElementById('bDefName').textContent=d.battle.defenderName;
+    document.getElementById('bDefAvatar').textContent=isSolo?'?':(def?def.name.charAt(0):'D');
+    document.getElementById('bDefAvatar').style.background=isSolo?'#555':(def?def.color:'#3498db');
+    document.getElementById('bDefName').textContent=isSolo?'Bos Bolge':d.battle.defenderName;
+    document.querySelector('.battle-role.def').textContent=isSolo?'Fetih':'\u{1F6E1} Savunma';
     const targetTxt=d.battle.targetRegionName||'';
     const sourceTxt=d.battle.sourceRegionName?` (${d.battle.sourceRegionName}'den)`:'';
     document.getElementById('bTarget').textContent=targetTxt+sourceTxt;
@@ -993,6 +995,63 @@ socket.on('battleQuestion',d=>{
         if(!S.answered&&isP){S.answered=true;socket.emit('submitBattleAnswer',{answer:-1});}
     });
     SFX.play('battle');
+});
+
+socket.on('soloQuestion',d=>{
+    if(S.phase===null) return;
+    stopTimer();
+    S.answered=false; S.battle=d.battle;
+    const isP=d.battle.attackerId===S.myId;
+
+    document.getElementById('bAtkName').textContent=d.battle.attackerName;
+    document.getElementById('bDefName').textContent='Bos Bolge';
+    document.getElementById('bDefAvatar').textContent='?';
+    document.getElementById('bDefAvatar').style.background='#555';
+    document.querySelector('.battle-role.def').textContent='Fetih';
+
+    document.getElementById('battleQText').textContent=d.question;
+    document.getElementById('battleQText').style.display='';
+    document.getElementById('battleOptions').style.display='';
+    document.querySelector('.battle-header').classList.remove('intro-mode');
+
+    document.querySelectorAll('#battleOptions .q-option').forEach((b,i)=>{
+        b.innerHTML=''; b.textContent=d.options[i]; b.className='q-option'; b.dataset.idx=i;
+        b.style.pointerEvents=isP?'':'none'; b.style.visibility='';
+        b.style.borderColor=''; b.style.background=''; b.style.boxShadow='';
+    });
+
+    const bTimer=document.querySelector('#battleOverlay .q-timer-ring');
+    if(bTimer) bTimer.style.display='';
+    const bPU=document.querySelector('#battleOverlay .q-powerups');
+    if(bPU) bPU.style.display=isP?'':'none';
+
+    UI.show('battleOverlay');
+    startTimer(d.timeLimit, document.getElementById('battleTimerNum'), document.getElementById('battleTimerCircle'), ()=>{
+        if(!S.answered&&isP){S.answered=true;socket.emit('submitBattleAnswer',{answer:-1});}
+    });
+});
+
+socket.on('soloAnswerReveal',d=>{
+    if(S.phase===null) return;
+    stopTimer();
+    const opts=document.querySelectorAll('#battleOptions .q-option');
+    opts.forEach((b,i)=>{
+        b.style.pointerEvents='none';
+        b.classList.remove('selected','correct','wrong');
+        if(i===d.correctIndex) b.classList.add('correct-glow');
+    });
+    if(d.attackerAnswer>=0 && d.attackerAnswer<opts.length){
+        const aBtn=opts[d.attackerAnswer];
+        aBtn.style.borderColor=d.attackerColor;
+        aBtn.style.background=`${d.attackerColor}20`;
+        aBtn.style.boxShadow=`0 0 8px ${d.attackerColor}40`;
+        const aTag=document.createElement('span');
+        aTag.className='answer-tag';
+        aTag.style.background=d.attackerColor;
+        aTag.textContent=d.attackerName;
+        aBtn.appendChild(aTag);
+    }
+    SFX.play('ok');
 });
 
 socket.on('battleAnswerReveal',d=>{
@@ -1148,11 +1207,14 @@ socket.on('battleResult',d=>{
     if(d.winner){
         document.getElementById('brTitle').textContent=`${w?w.name:'?'} Kazandı!`;
         document.getElementById('brTitle').style.color=w?w.color:'#ffd700';
+    } else if(d.reason==='attacker_wrong'){
+        document.getElementById('brTitle').textContent='Fetih Basarisiz!';
+        document.getElementById('brTitle').style.color='#f59e0b';
     } else {
         document.getElementById('brTitle').textContent='Savunma Avantajı!';
         document.getElementById('brTitle').style.color='#f59e0b';
     }
-    const reasons={attacker_correct:'Saldıran doğru bildi!',defender_correct:'Savunan doğru bildi!',both_wrong:'İkisi de bilemedi!',tiebreaker_closer:'Yakın tahmin kazandı!',tiebreaker_faster:'Hızlı cevap kazandı!'};
+    const reasons={attacker_correct:'Saldıran doğru bildi!',defender_correct:'Savunan doğru bildi!',both_wrong:'İkisi de bilemedi!',attacker_wrong:'Saldıran bilemedi!',tiebreaker_closer:'Yakın tahmin kazandı!',tiebreaker_faster:'Hızlı cevap kazandı!'};
     document.getElementById('brDetail').textContent=reasons[d.reason]||'';
     document.getElementById('brAnswer').textContent='';
     document.getElementById('brTerritory').textContent=d.targetRegion?`${d.targetRegion.name}${d.targetRegion.hasBase?` (HP:${d.targetRegion.baseHp})`:''}` :'';

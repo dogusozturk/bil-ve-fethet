@@ -85,11 +85,13 @@ function attackable(room, pid){
     const s = new Set();
     for(const r of my) for(const nid of r.neighbors){
         const nr = room.map.find(x=>x.id===nid);
-        if(!nr || nr.burned || !nr.owner || nr.owner===pid) continue;
+        if(!nr || nr.burned || nr.owner===pid) continue;
+        // Bos bolge - fetih edilebilir
+        if(!nr.owner){ s.add(nid); continue; }
         // Kaleye saldirabilmek icin o oyuncunun kalesiz bolgesi kalmamis olmali
         if(nr.hasBase){
             const enemyNonCastle=room.map.filter(x=>x.owner===nr.owner && !x.burned && !x.hasBase);
-            if(enemyNonCastle.length>0) continue; // Hala kalesiz bolgesi var, kaleye saldiramaz
+            if(enemyNonCastle.length>0) continue;
         }
         s.add(nid);
     }
@@ -307,8 +309,8 @@ function startExpansion(code){
     const room=rooms.get(code); if(!room||room.state!=='playing') return;
     room.expansionRound++;
 
-    // Bos sehir kalmadiysa savasa gec
-    if(!emptyRegions(room).length){
+    // 4 tur veya bos sehir kalmadiysa savasa gec
+    if(room.expansionRound > C.EXPANSION_ROUNDS || !emptyRegions(room).length){
         io.to(code).emit('phaseChange',{phase:'battle'});
         setTimeout(()=>startBattle(code), 2500);
         return;
@@ -319,7 +321,7 @@ function startExpansion(code){
     room.currentQuestion=q; room.questionStartTime=Date.now();
 
     io.to(code).emit('expansionQuestion',{
-        round:room.expansionRound, totalRounds:'?',
+        round:room.expansionRound, totalRounds:C.EXPANSION_ROUNDS,
         question:q.q, unit:q.unit||'', timeLimit:C.EXPANSION_TIME
     });
 
@@ -470,9 +472,16 @@ function handleAttackSelect(code, pid, regionId){
         return;
     }
 
+    const tr=room.map.find(r=>r.id===regionId);
+
+    // Bos bolge - kaynak sehir secmeye gerek yok (kaybetme riski yok)
+    if(tr && !tr.owner){
+        finishAttackSelect(code, pid, regionId, null);
+        return;
+    }
+
     // Hedef secildi, simdi kaynak sehir sec
     room.pendingAttackTarget=regionId;
-    const tr=room.map.find(r=>r.id===regionId);
     // Hedefin komsulari arasinda saldiran oyuncunun bolgelerini bul
     const mySources=room.map.filter(r=>r.owner===pid && !r.burned && tr && tr.neighbors.includes(r.id)).map(r=>r.id);
 
@@ -537,18 +546,34 @@ function resolveAttacks(code){
     for(const [aid,atk] of Object.entries(room.currentAttacks)){
         if(!atk||typeof atk!=='object'||!atk.target) continue;
         const tr=room.map.find(r=>r.id===atk.target);
-        if(!tr||!tr.owner) continue;
+        if(!tr) continue;
         const att=room.players.find(p=>p.id===aid);
-        const def=room.players.find(p=>p.id===tr.owner);
-        if(!att||!def||att.eliminated||def.eliminated) continue;
-        battles.push({
-            attackerId:aid, defenderId:tr.owner,
-            targetRegionId:atk.target, sourceRegionId:atk.source,
-            attackerName:att.name, defenderName:def.name,
-            attackerColor:att.color, defenderColor:def.color,
-            targetRegionName:tr.name,
-            sourceRegionName:room.map.find(r=>r.id===atk.source)?.name||''
-        });
+        if(!att||att.eliminated) continue;
+
+        if(!tr.owner){
+            // Bos bolge - solo fetih (savunan yok)
+            battles.push({
+                attackerId:aid, defenderId:null,
+                targetRegionId:atk.target, sourceRegionId:atk.source,
+                attackerName:att.name, defenderName:'',
+                attackerColor:att.color, defenderColor:'#555',
+                targetRegionName:tr.name,
+                sourceRegionName:room.map.find(r=>r.id===atk.source)?.name||'',
+                isSolo:true
+            });
+        } else {
+            const def=room.players.find(p=>p.id===tr.owner);
+            if(!def||def.eliminated) continue;
+            battles.push({
+                attackerId:aid, defenderId:tr.owner,
+                targetRegionId:atk.target, sourceRegionId:atk.source,
+                attackerName:att.name, defenderName:def.name,
+                attackerColor:att.color, defenderColor:def.color,
+                targetRegionName:tr.name,
+                sourceRegionName:room.map.find(r=>r.id===atk.source)?.name||'',
+                isSolo:false
+            });
+        }
     }
     if(!battles.length){ setTimeout(()=>startBattle(code),1500); return; }
     room.pendingBattles=battles; room.currentBattleIndex=0;
@@ -564,30 +589,106 @@ function nextBattle(code){
         return;
     }
     const b=room.pendingBattles[room.currentBattleIndex];
-    // Saldiran veya savunan elendiyse bu savasi atla
+
+    // Saldiran elendiyse bu savasi atla
     const attP=room.players.find(p=>p.id===b.attackerId);
-    const defP=room.players.find(p=>p.id===b.defenderId);
-    if(!attP||attP.eliminated||!defP||defP.eliminated){
+    if(!attP||attP.eliminated){
         room.currentBattleIndex++;
         nextBattle(code); return;
     }
+
+    // Solo degilse savunan da kontrol et
+    if(!b.isSolo){
+        const defP=room.players.find(p=>p.id===b.defenderId);
+        if(!defP||defP.eliminated){
+            room.currentBattleIndex++;
+            nextBattle(code); return;
+        }
+    }
+
     room.battleAnswers={};
 
-    // Once kimlerin savastigini goster
-    io.to(code).emit('battleIntro',{battle:b});
+    if(b.isSolo){
+        // Solo fetih - sadece saldiran soru cozecek
+        io.to(code).emit('battleIntro',{battle:b});
 
-    // 2.5 saniye sonra soruyu gonder
+        setTimeout(()=>{
+            if(!room||room.state!=='playing') return;
+            const q=pickQuestion(multipleQ, room.usedMultiple);
+            room.currentBattleQuestion=q; room.battleQuestionStart=Date.now();
+
+            io.to(code).emit('soloQuestion',{
+                battle:b, question:q.q, options:[...q.o], timeLimit:C.BATTLE_TIME
+            });
+
+            room.battleQuestionTimer=setTimeout(()=>resolveSoloBattle(code), (C.BATTLE_TIME+2)*1000);
+        }, 2500);
+    } else {
+        // Normal 2 kisilik savas
+        io.to(code).emit('battleIntro',{battle:b});
+
+        setTimeout(()=>{
+            if(!room||room.state!=='playing') return;
+            const q=pickQuestion(multipleQ, room.usedMultiple);
+            room.currentBattleQuestion=q; room.battleQuestionStart=Date.now();
+
+            io.to(code).emit('battleQuestion',{
+                battle:b, question:q.q, options:[...q.o], timeLimit:C.BATTLE_TIME
+            });
+
+            room.battleQuestionTimer=setTimeout(()=>resolveBattle(code), (C.BATTLE_TIME+2)*1000);
+        }, 2500);
+    }
+}
+
+function checkSoloBattle(room){
+    const b=room.pendingBattles[room.currentBattleIndex];
+    if(b && b.isSolo && room.battleAnswers[b.attackerId]){
+        clearTimeout(room.battleQuestionTimer);
+        resolveSoloBattle(room.code);
+    }
+}
+
+function resolveSoloBattle(code){
+    const room=rooms.get(code); if(!room||room.state!=='playing') return;
+    clearTimeout(room.battleQuestionTimer);
+    const b=room.pendingBattles[room.currentBattleIndex];
+    if(!b){ room.currentBattleIndex++; nextBattle(code); return; }
+    const q=room.currentBattleQuestion;
+    if(!q){ room.currentBattleIndex++; nextBattle(code); return; }
+    const aA=room.battleAnswers[b.attackerId];
+    const correct=aA && aA.answer===q.a;
+
+    // Cevabi goster
+    io.to(code).emit('soloAnswerReveal',{
+        battle:b, correctIndex:q.a,
+        attackerAnswer:aA?aA.answer:-1,
+        attackerColor:b.attackerColor, attackerName:b.attackerName
+    });
+
     setTimeout(()=>{
-        if(!room||room.state!=='playing') return;
-        const q=pickQuestion(multipleQ, room.usedMultiple);
-        room.currentBattleQuestion=q; room.battleQuestionStart=Date.now();
+        const tr=room.map.find(r=>r.id===b.targetRegionId);
+        let winner=null, reason='';
+        if(correct){
+            winner=b.attackerId; reason='attacker_correct';
+            if(tr) tr.owner=b.attackerId;
+            const aP=room.players.find(p=>p.id===b.attackerId);
+            if(aP) aP.conquestScore+=C.SCORE_CONQUEST;
+        } else {
+            winner=null; reason='attacker_wrong';
+        }
 
-        io.to(code).emit('battleQuestion',{
-            battle:b, question:q.q, options:[...q.o], timeLimit:C.BATTLE_TIME
+        io.to(code).emit('battleResult',{
+            battle:b, winner, reason,
+            correctAnswer:q.a, correctText:q.o[q.a],
+            attackerAnswer:aA?.answer??null, defenderAnswer:null,
+            map:room.map, players:safeList(room), eliminated:null,
+            targetRegion:tr?{id:tr.id,name:tr.name,hasBase:tr.hasBase,baseHp:tr.baseHp}:null
         });
 
-        room.battleQuestionTimer=setTimeout(()=>resolveBattle(code), (C.BATTLE_TIME+2)*1000);
-    }, 2500);
+        room.currentBattleIndex++;
+        setTimeout(()=>nextBattle(code), 3000);
+    }, 2000);
 }
 
 function resolveBattle(code){
@@ -895,7 +996,9 @@ io.on('connection', socket=>{
     socket.on('submitBattleAnswer', ({answer})=>{
         const room=rooms.get(socket.roomCode); if(!room||!room.currentBattleQuestion) return;
         room.battleAnswers[socket.id]={answer, time:Date.now()-room.battleQuestionStart};
-        checkBattle(room);
+        const b=room.pendingBattles[room.currentBattleIndex];
+        if(b && b.isSolo) checkSoloBattle(room);
+        else checkBattle(room);
     });
 
     socket.on('submitTiebreakerAnswer', ({answer})=>{
